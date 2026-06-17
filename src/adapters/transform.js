@@ -12,8 +12,9 @@
  * @returns {number} 0~5 (소수1자리)
  */
 export function normalizeGuestRating(raw) {
-  if (typeof raw !== 'number' || raw < 0) return 0
-  return Math.round((raw / 2) * 10) / 10
+  if (!Number.isFinite(raw) || raw < 0) return 0 // NaN·Infinity·비숫자·음수(-1 평점없음 포함) → 0
+  // KAYAK 계약은 0~10. 손상값(>10)은 10으로 클램프해 앱 0~5 척도를 넘지 않게 한다(적대리뷰 #3).
+  return Math.round((Math.min(raw, 10) / 2) * 10) / 10
 }
 
 /**

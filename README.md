@@ -40,7 +40,7 @@ curl http://localhost:8787/health
 |---|---|---|---|
 | `GET /api/autocomplete?q=` | `AutocompleteItem[]` | Autocomplete | ✅ S2 |
 | `GET /api/hotels?destination=&checkin=&checkout=&rooms=` | `{ results, totalCount }` | Hotel Search(다중) `/api/3.0/hotels` 🔴헤더2 | ✅ S2 |
-| `GET /api/hotel/:id` | `HotelDetail` | Hotel Search(단일) `/api/3.0/hotel` 🔴헤더2 | S3 |
+| `GET /api/hotel/:id` | `HotelDetail` | Hotel Search(단일) `/api/3.0/hotel` 🔴헤더2 | ✅ S3 |
 | `GET /api/cashback` | `CashbackTxn[]` | Reporting `/transactions/hotels` | S5 |
 
 > ⚠ `/api/hotels` 는 검색 파라미터(`destination`·`checkin`·`checkout` 필수, `rooms` 기본 2)를 쿼리로 받는다.
@@ -52,7 +52,7 @@ curl http://localhost:8787/health
 - **S0** ✅: 레포 부트스트랩 + 중계 서버 골격 + `/health`. ← KAYAK 호출 없이 서버 기동 200.
 - **S1** ✅: 자동완성·검색 실호출(개발실 IP에서 200 + 실데이터). 검색 헤더 2개 검증.
 - **S2** ✅: 자동완성·검색결과 어댑터(KAYAK→앱 타입) + constants-mapping 캐시 + 검색 de-dupe. 단위테스트 `npm test`, 라우트 실측 `npm run test:route`.
-- **S3**: 상세 어댑터 + isComplete 폴링.
+- **S3** ✅: 상세 어댑터(KAYAK 단일 호텔→`HotelDetail`) + isComplete 폴링 재사용 + propertyType 검색캐시 보강. 단위테스트 `npm test`, 라우트 실측 `npm run test:route`(상세 포함).
 - **S4**: 딥링크 `p=` 회원 라벨 주입(앱 측 `Meta-Re/lib/outlink.ts`).
 - **S5**: 캐시백 리포팅(테스트 예약 → 익일 조회).
 - **S6**: 운영 전환(운영 HOST·고정 IP 화이트리스트·통화/번역·CSP).

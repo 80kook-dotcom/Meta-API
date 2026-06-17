@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { featuresToAmenities, AMENITY_ORDER, _buckets } from '../src/adapters/amenities.js'
+import { featuresToAmenities, featuresToFacilities, AMENITY_ORDER, _buckets } from '../src/adapters/amenities.js'
 
 test('무료 WiFi: 무료/일반 와이파이는 포함', () => {
   assert.ok(featuresToAmenities([388]).includes('무료 WiFi')) // 무료 와이파이
@@ -52,4 +52,31 @@ test('미등록 ID·빈 입력 → 빈 배열(graceful)', () => {
 test('버킷 정의는 15개(앱 AMENITY_CATALOG 와 동수)', () => {
   assert.equal(Object.keys(_buckets()).length, 15)
   assert.equal(AMENITY_ORDER.length, 15)
+})
+
+// ── featuresToFacilities (S3 상세·#20) ──
+test('featuresToFacilities: {tag,label} + 카탈로그 순서 + FAC_ICON 6키 매칭', () => {
+  // 무료WiFi(388)·주차(77)·피트니스(335)·레스토랑(72)·24시간프런트(124) 뒤섞어 입력
+  const f = featuresToFacilities([124, 72, 335, 77, 388])
+  assert.deepEqual(f, [
+    { tag: 'wifi', label: '무료 WiFi' },
+    { tag: 'parking', label: '주차' },
+    { tag: 'fitness', label: '피트니스' },
+    { tag: 'restaurant', label: '레스토랑' },
+    { tag: 'frontdesk24', label: '24시간 프런트' },
+  ])
+})
+
+test('featuresToFacilities: tag 는 전부 유니크(앱 React key=f.tag 충돌 방지)', () => {
+  // 전 버킷이 켜지도록 각 버킷 대표 ID 1개씩(수영장371·스파52·사우나225 등) 포함
+  const f = featuresToFacilities([388, 77, 105, 371, 335, 52, 394, 230, 72, 73, 225, 7, 67, 24, 124])
+  const tags = f.map((x) => x.tag)
+  assert.equal(new Set(tags).size, tags.length, `tag 중복: ${tags.join(',')}`)
+  assert.equal(tags.length, 15) // 15버킷 전부
+})
+
+test('featuresToFacilities: 반려동물 불가(363) 제외 · 빈 입력 → []', () => {
+  assert.deepEqual(featuresToFacilities([363]), [])
+  assert.deepEqual(featuresToFacilities([]), [])
+  assert.deepEqual(featuresToFacilities(undefined), [])
 })

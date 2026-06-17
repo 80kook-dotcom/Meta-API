@@ -25,6 +25,13 @@ test('normalizeGuestRating: -1(평점없음)·비정상 → 0', () => {
   assert.equal(normalizeGuestRating(undefined), 0)
   assert.equal(normalizeGuestRating(null), 0)
   assert.equal(normalizeGuestRating('8'), 0) // 문자열은 0(방어)
+  assert.equal(normalizeGuestRating(NaN), 0) // NaN(손상) → 0
+  assert.equal(normalizeGuestRating(Infinity), 0) // Infinity → 0
+})
+
+test('normalizeGuestRating: 손상값(>10)은 10으로 클램프(앱 0~5 척도 보호·적대리뷰 #3)', () => {
+  assert.equal(normalizeGuestRating(11), 5) // min(11,10)/2=5
+  assert.equal(normalizeGuestRating(20), 5)
 })
 
 test('mapCashback: PERCENTAGE 는 value + cap/currency 보존', () => {

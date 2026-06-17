@@ -42,7 +42,7 @@ export function createApp() {
     res.json({
       ok: true,
       service: 'meta-api',
-      phase: 'S2-adapter',
+      phase: 'S3-detail',
       secretsLoaded: missing.length === 0,
       missingSecrets: missing,
       kayakHost: config.kayakHost,

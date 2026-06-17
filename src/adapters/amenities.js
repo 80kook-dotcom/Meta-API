@@ -49,6 +49,30 @@ export const AMENITY_ORDER = [
 // 사우나는 별도 버킷(스파와 구분). 한증막실(382) 포함.
 BUCKETS['사우나'] = [225, 382]
 
+/**
+ * 버킷 라벨 → 앱 상세(HotelDetail.facilities)의 tag 슬러그 (S3).
+ * - 앱 Detail.tsx 가 facilities 를 `key={f.tag}` 로 렌더 → tag 는 **유니크**해야 한다(중복 시 React key 충돌).
+ * - 앱 FAC_ICON(wifi/parking/breakfast/poolspa/fitness/frontdesk24) 6키와 일치하는 것만 전용 아이콘,
+ *   나머지는 앱이 IconCheck 로 폴백한다(앱 무변경). 그래서 슬러그를 라벨마다 유니크하게 부여한다.
+ */
+const BUCKET_TAG = {
+  '무료 WiFi': 'wifi',        // FAC_ICON ✓ IconWifi
+  주차: 'parking',           // FAC_ICON ✓ IconParking
+  조식: 'breakfast',         // FAC_ICON ✓ IconRestaurant
+  수영장: 'poolspa',         // FAC_ICON ✓ IconPool
+  피트니스: 'fitness',        // FAC_ICON ✓ IconFitness
+  '24시간 프런트': 'frontdesk24', // FAC_ICON ✓ IconClock
+  스파: 'spa',
+  반려동물: 'pet',
+  공항셔틀: 'shuttle',
+  레스토랑: 'restaurant',
+  '바/라운지': 'bar',
+  사우나: 'sauna',
+  비즈니스센터: 'business',
+  금연객실: 'nonsmoking',
+  세탁: 'laundry',
+}
+
 /** facility ID → 버킷 라벨들(역색인). 한 ID 가 여러 버킷에 속할 수 있음(예: 1157→레스토랑·바/라운지). */
 const ID_TO_BUCKETS = (() => {
   const m = new Map()
@@ -62,12 +86,8 @@ const ID_TO_BUCKETS = (() => {
   return m
 })()
 
-/**
- * 호텔의 features(숫자 ID 배열) → 앱 amenities 라벨 배열(버킷·중복 제거·카탈로그 순서).
- * @param {number[]} features
- * @returns {string[]}
- */
-export function featuresToAmenities(features) {
+/** features(숫자 ID 배열) → 존재하는 버킷 라벨(카탈로그 순서·중복 제거). 내부 공통. */
+function presentBuckets(features) {
   if (!Array.isArray(features) || !features.length) return []
   const present = new Set()
   for (const id of features) {
@@ -75,6 +95,26 @@ export function featuresToAmenities(features) {
     if (labels) for (const l of labels) present.add(l)
   }
   return AMENITY_ORDER.filter((l) => present.has(l))
+}
+
+/**
+ * 호텔의 features(숫자 ID 배열) → 앱 amenities 라벨 배열(검색 카드용·#4).
+ * @param {number[]} features
+ * @returns {string[]}
+ */
+export function featuresToAmenities(features) {
+  return presentBuckets(features)
+}
+
+/**
+ * 호텔의 features(숫자 ID 배열) → 앱 상세 facilities {tag,label}[] (S3·#20).
+ * 검색 카드(라벨만)와 달리 상세는 tag(아이콘 매칭·유니크 key)가 필요하다.
+ * raw 라벨 119개를 그대로 넣지 않고 S2 와 동일한 15버킷으로 큐레이션해 그리드 파손을 막는다(codex 동의).
+ * @param {number[]} features
+ * @returns {{tag:string,label:string}[]}
+ */
+export function featuresToFacilities(features) {
+  return presentBuckets(features).map((label) => ({ tag: BUCKET_TAG[label], label }))
 }
 
 /** 테스트·검수용: 버킷 정의 노출(읽기 전용 사본). */

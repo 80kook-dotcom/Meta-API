@@ -13,6 +13,7 @@
  *    이 어댑터는 그 필드를 **읽지 않는다**(앱 타입에 맞는 안전 필드만 선택). → 키 누출 차단.
  */
 import { getPropertyLabel } from '../kayak/constants.js'
+import { rememberPropertyType } from '../lib/propertyTypeCache.js'
 import { featuresToAmenities } from './amenities.js'
 import {
   normalizeGuestRating,
@@ -99,7 +100,10 @@ export async function adaptHotels(resp, { languageCode = 'ko_KR' } = {}) {
     if (label == null && typeof r?.propertyType === 'number') {
       label = await getPropertyLabel(r.propertyType, languageCode)
     }
-    hotels.push(adaptOneHotel(r, providers, label))
+    const hotel = adaptOneHotel(r, providers, label)
+    // 상세(S3)는 단일응답에 propertyType 이 없어 보강이 필요하다 → 라벨이 있으면 적재(#20).
+    if (label) rememberPropertyType(hotel.hotelId, label, languageCode)
+    hotels.push(hotel)
   }
 
   const out = { results: hotels, totalCount: hotels.length }

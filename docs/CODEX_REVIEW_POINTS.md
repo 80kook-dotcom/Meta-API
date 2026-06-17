@@ -239,9 +239,34 @@ high #4·#5·#7 + #17·#18 read-only 자문. 4건 모두 내 결정에 **동의*
 - **minor** dedupe done 캐시 GC 가 호출 시에만 동작 → 트래픽 정지 시 메모리 잔류 → **수정**: 크기 상한(MAX_DONE 200·오래된 것부터 제거).
 - **minor** 폴링 중 일시 오류 1회로 검색 즉시 실패(재시도 없음) → **S6 #22(쿼터·백오프)로 이관**(검증된 S1 폴링 동작 변경 회피·코드별 분기 필요). 단위테스트 40/40·라우트 실측 재통과.
 
+## codex 자문 결과 — S3 상세 (2026-06-17 · 실제 호출 성공)
+S3 5건(#6 폴링·#11 평점·#19 리뷰·#20 propertyType·facility + policies·de-dupe) read-only 자문. 결론 + 내 판단:
+1. **#19 리뷰 items**: codex **동의** → items=[](가장 정직). quotes/aspects 가 `{text,polarity}`뿐이라 앱 `{author,date,score}`에 맞추면 꾸며내야 하고 RatingBadge 에 polarity 를 점수처럼 보이게 하면 신뢰 훼손. categories 는 고정순서·한글·OVERALL 누락/범위이탈/null 방어 권고. → 채택.
+2. **#20 propertyType**: codex **정교화** → 빈 문자열 폴백은 "5성급 ·  · 주소" 헤더 깨짐. 우선순위 = ① 검색캐시 라벨 ② 미스 시 generic '숙소'(리조트/레지던스 섞이면 '호텔' 하드코딩은 허위 가능). "항상 빈값" 비추천. → propertyTypeCache(검색→상세)→'숙소' 폴백 채택.
+3. **#20 facilities**: codex **동의** → 15버킷. featureTags(영문 그룹)는 주 source 말고 맵 검증/보정용. raw 119개는 그리드 파손. → features→15버킷 `{tag,label}` 채택.
+4. **policies**: codex **정교화** → HH:MM 추출 적절·cancel="" 적절(요금별 hasFreeCancellation 을 호텔 공통 취소정책으로 승격 금지). **checkout 도 앱이 '이전' 부착하니 동일 정규화** 필요. → checkin/checkout 둘 다 시간 추출 채택.
+5. **폴링/de-dupe**: codex → 앱 detailCacheStore(3분)만으론 동시진입 부하 못 막음. 서버 in-flight de-dupe 권장·실패는 캐시 금지·키엔 응답 바꾸는 입력 전부. → S2 dedupe 재사용(이미 reject 미캐시·키에 clientIp market 포함). 채택.
+
+## S3 상세 — 구현·검증 완료 (2026-06-17)
+- **신규/변경**: `adapters/hotel.js`(adaptHotelDetail) / `lib/propertyTypeCache.js`(검색→상세 propertyType 보강·TTL 30분·LRU 5000·언어키) / `adapters/amenities.js`(featuresToFacilities + BUCKET_TAG·유니크 슬러그·FAC_ICON 6키) / `adapters/hotels.js`(rememberPropertyType 연결) / `routes/hotel.js`(실연결·501 스텁 제거·dataless 허용·dedupe). health phase S3-detail.
+- **라이브 실측 확정(프로브)**: 단일응답에 propertyType 없음 / reviews.guestRatings 0~10(OVERALL/LOCATION/COMFORT/SERVICES/STAFF/CLEAN/VALUE) / quotes·aspects 0건 / policies checkin·checkout만(cancel無) / images tag無 / providers cashback(isDirect 無).
+- **매핑**: guestRating·reviews.overall=OVERALL÷2 / categories=키→한글·÷2·OVERALL제외·중복라벨제거 / items=[] / facilities=features→15버킷`{tag,label}` / policies checkin·checkout=HH:MM추출·cancel='' / images=`{url:large,tag:''}` / providers index명시·logo약자·logoUrl전방호환 / results bookUri(p=) 보존.
+- **단위테스트 `npm test` 66/66**(기존 + 신규 hotel 19·amenities facilities 3·transform 클램프). 합성 픽스처(비밀無)·hermetic.
+- **라우트 실측 `npm run test:route`**(개발실 IP·라이브): 검색250→propertyType '호텔' 캐시적재 / 상세 노보텔·이비스 양쪽 200·평점 4.4·4.1(÷2)·facilities·policies(15:00·14:00 / 12:00 / cancel'')·images·categories6·items=[]·providers7·results 163·37·**조인정합**·bookUri p=·isComplete·키누출0.
+
+### S3 적대 리뷰(다차원 워크플로 `wf_f77cab0e`·25 에이전트) — confirmed 7건(원시20→검증7)
+5차원(계약·보안·견고성·결정준수·캐시) 병렬 + 발견별 적대 검증. 결과: **6건 수정·1건 Meta-Re 연동 트랙 이관**.
+- **major×3 → results 정제 1건으로 통합 수정**: ① isCheapestRate 모든 totalRate≤0 시 아무것도 true 안 됨 ② providerIndex -1 폴백이 앱 조인에서 silent 손실 ③ totalRate 0 폴백 '₩0' phantom → adaptHotelDetail 이 results 를 `totalRate>0 && providerIndex>=0` 으로 정제(무효 요금 드롭)·남은 요금 최저가 재계산.
+- **major** buildReviewCategories raw>10·NaN 미방어 → **수정**: 범위검증(`Number.isFinite·0~10`) + transform.normalizeGuestRating 에 NaN/Infinity 방어 + 10 클램프(검색에도 일관 적용).
+- **minor** propertyTypeCache.recallPropertyType keyOf 중복 호출 → **수정**(key 1회 계산).
+- **critical→minor 재판정** propertyTypeCache LRU eviction undefined 가드 부재(현재 발현 불가=size>5000이면 키 항상 존재) → **수정**: `if(oldest===undefined)break`(dedupe.gc 와 일관).
+- **이관(Meta-Re 연동 트랙)** [사진탭 tag] 단일응답 images 에 tag 없음 → 어댑터 tag='' → 앱 `Detail.tsx` photoCats 가 빈 tag 칩을 거르지 않아 빈 라벨 칩 1개 생성. **중계 어댑터는 정확(KAYAK tag 미제공)**·근본은 앱 렌더 → `Detail.tsx` photoCats 에 `filter((t)=>t.trim())` 추가 필요(앱 트랙·중계 코드로 수정 불가).
+- refuted 13건(URLSearchParams 자동 인코딩·React 텍스트 이스케이프·KAYAK cancel 미제공·BUCKET_TAG 사우나 L70 존재·providerIndex 조인 자동필터 등) 자체 재검토 기각 타당. 수정 후 회귀 테스트 추가(무효요금 드롭·손상평점 제외)·66/66 + 라우트 재실측 통과.
+
 ## 갱신 이력
 - **2026-06-17 v1**: 워크플로(33 에이전트·`wf_10ee2a1b`) 22 keep + 직접분석 + 검사관 교차검증(코드근거 5/6 일치·S0 CORS 표현 1건 정정).
 - **2026-06-17 v1.1**: codex S0 골격 자문 1회 성공(위 4건). high 14건은 각 세션 착수 직전 codex 호출 예정.
 - **2026-06-17 사용자 결정**: S0 보안·구조 보강(앱↔중계 인증·rate-limit / client IP 서버 계산 신뢰경계 / `app`·`listen` 분리 / KAYAK 헬퍼 host·auth 분리 / `/api` 공통 미들웨어)을 **S1 착수 시 함께 선반영**으로 확정. → S1 시작 시 먼저 codex로 #1·#16·구조 권고를 확정한 뒤 자동완성·검색 실호출 구현.
 - **2026-06-17 v1.2 (S1 완료)**: 위 구조·보안 선반영 + #2/#3 codex 자문(성공) 반영 + 자동완성·검색 실호출 200 검증. 상세는 위 "codex 자문 결과 — S1 연결" / "S1 연결 — 구현·검증 완료". 잔여 high(#4·#5·#7 등)는 S2 착수 직전 codex 호출.
 - **2026-06-17 v1.3 (S2 완료)**: #4·#5·#7·#17·#18 실측 프로브 + codex 자문(성공·4건 동의·2건 정교화) 반영. 어댑터 6모듈 + 라우트 실연결. 단위 34/34 + 라우트 실측(250건 실데이터·키누출0) 통과. userTrackId 필수 버그 라이브로 적발·수정. 상세는 위 3개 S2 섹션. 잔여 high(#6·#8~#14 등)는 S3~S6 착수 직전 codex 호출.
+- **2026-06-17 v1.4 (S3 완료)**: #6·#11·#19·#20 + policies·de-dupe codex 자문(성공·#19/#20facility 동의·#20propertyType/policies/dedupe 정교화) 반영. 상세 어댑터 + propertyType 캐시 + 라우트 실연결. 단위 66/66 + 라우트 실측(노보텔·이비스 실데이터·키누출0). 적대 리뷰(`wf_f77cab0e`·25 에이전트) confirmed 7=6수정(results정제 #2/#4/#5·평점방어 #3·캐시 #6/#7)+1 Meta-Re 이관(사진탭 tag). 상세는 위 3개 S3 섹션. 잔여 high(#8 p=라벨·#9 인코딩·#10 Approved·#11 IDOR·#12~#14 운영)는 S4~S6 착수 직전 codex 호출.

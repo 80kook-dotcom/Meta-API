@@ -29,14 +29,14 @@ async function main() {
     const s = app.listen(PORT, () => res(s))
   })
   L('═'.repeat(64))
-  L(`  S2 라우트 실측  ${BASE}`)
+  L(`  S3 라우트 실측  ${BASE}`)
   L('═'.repeat(64))
 
   try {
     // ① /health
     L('\n[1] GET /health')
     const health = await (await fetch(`${BASE}/health`)).json()
-    check(health.phase === 'S2-adapter', 'phase=S2-adapter', health.phase)
+    check(health.phase === 'S3-detail', 'phase=S3-detail', health.phase)
     check(health.secretsLoaded === true, 'secretsLoaded=true (키 로드)', JSON.stringify(health.missingSecrets))
 
     // ② /api/autocomplete
@@ -100,6 +100,50 @@ async function main() {
       fetch(`${BASE}/api/hotels?destination=${encodeURIComponent(dest)}&checkin=${checkin}&checkout=${checkout}&rooms=2`),
     ])
     check(d1.status === 200 && d2.status === 200, '동시 요청 둘 다 200(캐시/공유)', `${d1.status}/${d2.status}`)
+
+    // ⑥ /api/hotel/:id (상세·S3)
+    if (h?.hotelId) {
+      L(`\n[6] GET /api/hotel/${h.hotelId}?checkin=${checkin}&checkout=${checkout}&rooms=2`)
+      const t6 = Date.now()
+      const dRes = await fetch(`${BASE}/api/hotel/${encodeURIComponent(h.hotelId)}?checkin=${checkin}&checkout=${checkout}&rooms=2`)
+      const dText = await dRes.text()
+      L(`   (${Date.now() - t6}ms)`)
+      check(dRes.status === 200, 'status 200', String(dRes.status))
+      check(!/apiKey/i.test(dText), '🔒 응답에 apiKey 없음')
+      let dd = {}
+      try { dd = JSON.parse(dText) } catch {}
+      check(String(dd.hotelId) === String(h.hotelId), 'hotelId 일치', `${dd.hotelId}`)
+      check(typeof dd.name === 'string' && dd.name.length > 0, '호텔명 존재', dd.name)
+      check(dd.guestRating >= 0 && dd.guestRating <= 5, 'guestRating 0~5 척도(#11)', String(dd.guestRating))
+      check(typeof dd.propertyType === 'string' && dd.propertyType.length > 0, 'propertyType 라벨(검색캐시/폴백·#20)', dd.propertyType)
+      check(Array.isArray(dd.facilities) && dd.facilities.every((f) => f.tag && f.label), 'facilities {tag,label}[](#20)', `${dd.facilities?.length}개`)
+      check(dd.policies && typeof dd.policies.checkin === 'string' && typeof dd.policies.checkout === 'string', 'policies checkin/checkout', JSON.stringify(dd.policies))
+      check(Array.isArray(dd.images) && dd.images.every((im) => typeof im.url === 'string' && 'tag' in im), 'images {url,tag}[]', `${dd.images?.length}장`)
+      check(dd.place && typeof dd.place.lat === 'number' && typeof dd.place.address === 'string', 'place {lat,lon,address}')
+      check(dd.reviews && dd.reviews.overall >= 0 && dd.reviews.overall <= 5 && Array.isArray(dd.reviews.categories), 'reviews.overall 0~5 + categories[]', `cat ${dd.reviews?.categories?.length}`)
+      check(Array.isArray(dd.reviews?.items) && dd.reviews.items.length === 0, 'reviews.items=[](개별리뷰 미제공·#19)')
+      check(Array.isArray(dd.providers) && dd.providers.length > 0 && dd.providers.every((p) => typeof p.index === 'number'), 'providers[](index 명시)', `${dd.providers?.length}곳`)
+      check(Array.isArray(dd.results) && dd.results.length > 0, 'results[](요금)', `${dd.results?.length}건`)
+      const provIdxSet = new Set((dd.providers ?? []).map((p) => p.index))
+      check((dd.results ?? []).every((r) => provIdxSet.has(r.providerIndex)), 'results.providerIndex ↔ providers.index 조인 정합')
+      const withBook = (dd.results ?? []).find((r) => r.bookUri)
+      check(!!withBook && withBook.bookUri.includes('p='), 'results.bookUri 딥링크 p= 보존(S4)')
+      check(dd.isComplete === true, 'isComplete=true(폴링 완료)', String(dd.isComplete))
+      L(`     ${dd.name} · ★${dd.starRating} · ${dd.propertyType} · 평점 ${dd.guestRating}/5(리뷰 ${dd.numberOfReviews})`)
+      L(`     facilities(${dd.facilities?.length}): ${dd.facilities?.map((f) => f.label).join(', ')}`)
+      L(`     categories(${dd.reviews?.categories?.length}): ${dd.reviews?.categories?.map((c) => `${c.name} ${c.score}`).join(' / ')}`)
+      L(`     공급사 ${dd.providers?.length}곳 · 요금 ${dd.results?.length}건 · checkin ${dd.policies?.checkin} / checkout ${dd.policies?.checkout} / cancel "${dd.policies?.cancel}"`)
+
+      // ⑦ 상세 de-dupe: 동일 호텔 동시 2회 → 둘 다 200
+      L('\n[7] 상세 de-dupe: 동일 호텔 동시 2회 → 둘 다 200')
+      const [e1, e2] = await Promise.all([
+        fetch(`${BASE}/api/hotel/${encodeURIComponent(h.hotelId)}?checkin=${checkin}&checkout=${checkout}&rooms=2`),
+        fetch(`${BASE}/api/hotel/${encodeURIComponent(h.hotelId)}?checkin=${checkin}&checkout=${checkout}&rooms=2`),
+      ])
+      check(e1.status === 200 && e2.status === 200, '동시 요청 둘 다 200(in-flight 공유)', `${e1.status}/${e2.status}`)
+    } else {
+      check(false, '[6] 상세: 검색 결과에서 hotelId 미확보')
+    }
   } catch (e) {
     pass = false
     L(`\n❌ 예외: ${e?.code ?? ''} ${e?.message ?? e}`)
@@ -108,7 +152,7 @@ async function main() {
   }
 
   L('\n' + '═'.repeat(64))
-  L(pass ? '  ✅ S2 라우트 실측 통과' : '  ❌ S2 라우트 실측 실패 — 위 ✗ 확인')
+  L(pass ? '  ✅ S3 라우트 실측 통과' : '  ❌ S3 라우트 실측 실패 — 위 ✗ 확인')
   L('═'.repeat(64))
   process.exitCode = pass ? 0 : 1
 }
