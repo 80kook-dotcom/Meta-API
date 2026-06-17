@@ -18,6 +18,16 @@ test('scrubSecrets: apiKey 없는 본문은 그대로', () => {
   assert.equal(scrubSecrets('{"errorCode":"MISSING_USER_TRACK_ID"}'), '{"errorCode":"MISSING_USER_TRACK_ID"}')
 })
 
+test('scrubSecrets: sig= (캐시백 라벨 서명) 흔적도 ***로 가림 (S6)', () => {
+  assert.match(scrubSecrets('GET /api/cashback?labels=m1&exp=1700000000&sig=DEADBEEF1234'), /sig=\*\*\*/)
+  assert.ok(!/DEADBEEF1234/.test(scrubSecrets('sig=DEADBEEF1234')))
+  // labels(비PII·공개값)·exp 는 보존, sig 만 가림.
+  const scrubbed = scrubSecrets('labels=m1&exp=1700000000&sig=ABCDEF')
+  assert.match(scrubbed, /labels=m1/)
+  assert.match(scrubbed, /exp=1700000000/)
+  assert.match(scrubbed, /sig=\*\*\*/)
+})
+
 test('dedupe done 캐시: 크기 상한(기본 200) 초과 시 오래된 것부터 제거', async () => {
   _resetDedupe()
   // 250개 distinct 키를 긴 TTL 로 적재 → 상한(200) 이하로 유지되어야 함.

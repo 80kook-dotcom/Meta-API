@@ -3,6 +3,8 @@ import { config } from '../config.js'
 import { getTransactions } from '../kayak/endpoints.js'
 import { adaptTransactions } from '../adapters/cashback.js'
 import { dedupe } from '../lib/dedupe.js'
+import { verifyLabelToken } from '../lib/labelToken.js'
+import { logger } from '../lib/logger.js'
 
 const router = Router()
 
@@ -26,6 +28,12 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 router.get('/cashback', async (req, res, next) => {
   try {
+    // 캐시백은 회원 1인 단위 데이터 → 중간 캐시/브라우저 히스토리에 남기지 않는다(no-store).
+    // sig 가 query 에 실릴 수 있어(codex 권고) 캐싱·재현을 막는다.
+    res.setHeader('Cache-Control', 'no-store')
+
+    const now = new Date()
+
     // ── [11] 라벨 게이팅 ──
     // 배열 쿼리(?labels=a&labels=b)는 Express 가 배열로 파싱 → 명시적으로 거부(다회원 일괄조회 차단·의도 명확화).
     if (Array.isArray(req.query.labels)) {
@@ -49,11 +57,26 @@ router.get('/cashback', async (req, res, next) => {
       })
     }
 
+    // ── [11/D2·S6] 라벨 서명 검증(IDOR 방어) ──
+    // CASHBACK_LABEL_HMAC_SECRET 설정 시에만 강제. 인증 백엔드가 회원 본인 라벨에 대해 발급한
+    // exp+sig(HMAC-SHA256(label.exp))를 검증해 임의 라벨 조회를 막는다. 미설정(개발/데모)=현행 trust-label.
+    const hmacSecret = config.cashback.labelHmacSecret
+    if (hmacSecret) {
+      const v = verifyLabelToken({
+        label: labels,
+        exp: req.query.exp,
+        sig: req.query.sig,
+        secret: hmacSecret,
+        nowSec: Math.floor(now.getTime() / 1000),
+        maxAgeSec: config.cashback.labelTokenMaxAgeSec,
+      })
+      if (!v.ok) return res.status(v.status).json({ error: v.code, message: v.message })
+    }
+
     // ── 조회 기간(미지정 시 기본 창) ──
     // ⚠ 기본 창은 의도적으로 넉넉하다(최근 lookbackDays 일 ~ 내일). KAYAK 은 ET 기준이나 시작은 ~400일 전,
     //   종료는 UTC 내일(+1일)이라 ET 의 오늘/어제 경계가 창 안에 완전히 포함된다(경계 누락 불가).
     //   정밀 기간이 필요하면 앱이 startDate·endDate 를 명시 전달한다(그때 정확한 범위 사용).
-    const now = new Date()
     const end = new Date(now)
     end.setUTCDate(end.getUTCDate() + 1)
     const start = new Date(now)
@@ -89,7 +112,10 @@ router.get('/cashback', async (req, res, next) => {
         // 페이지 상한 도달 시 잘렸을 수 있음을 경고(무음 truncation 금지·키는 로그에 남기지 않음).
         // 회원 1인 거래는 보통 소량이라 발현 가능성 희박. 다중 페이지 수집은 S6 이관.
         if (rawLen === pageSize) {
-          console.warn(`[meta-api] cashback: 페이지 상한(${pageSize}) 도달 — 일부 거래 누락 가능(기간을 좁히거나 S6 페이지네이션 필요)`)
+          logger.warn('cashback 페이지 상한 도달 — 일부 거래 누락 가능', {
+            pageSize,
+            hint: '기간 축소 또는 다중 페이지 수집 필요',
+          })
         }
         return adaptTransactions(raw, { now })
       },

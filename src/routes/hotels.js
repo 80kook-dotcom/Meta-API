@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { searchHotels } from '../kayak/endpoints.js'
 import { adaptHotels } from '../adapters/hotels.js'
 import { dedupe } from '../lib/dedupe.js'
+import { resolveCurrency, resolveLanguage } from '../lib/market.js'
 
 const router = Router()
 
@@ -23,8 +24,13 @@ router.get('/hotels', async (req, res, next) => {
     const checkin = String(req.query.checkin ?? '').trim()
     const checkout = String(req.query.checkout ?? '').trim()
     const rooms = String(req.query.rooms ?? '2').trim() || '2'
-    const currencyCode = String(req.query.currencyCode ?? 'KRW').trim() || 'KRW'
-    const languageCode = String(req.query.languageCode ?? 'ko_KR').trim() || 'ko_KR'
+    // 통화·언어는 허용목록 검증(S6·#21). 비허용 값은 400(무음 오표기 금지). 누락은 config 기본(SSOT).
+    const cur = resolveCurrency(req.query.currencyCode)
+    if (cur.error) return res.status(400).json(cur.error)
+    const lang = resolveLanguage(req.query.languageCode)
+    if (lang.error) return res.status(400).json(lang.error)
+    const currencyCode = cur.value
+    const languageCode = lang.value
     // userTrackId 는 KAYAK 검색 필수 파라미터(없으면 400 MISSING_USER_TRACK_ID·실측).
     // 앱 sessionStore.userTrackId 를 받되, 누락 시 폴백 생성해 호출이 실패하지 않게 한다.
     const userTrackId = String(req.query.userTrackId ?? '').trim() || `relay-${randomUUID()}`
@@ -42,8 +48,9 @@ router.get('/hotels', async (req, res, next) => {
     }
 
     const clientIp = req.clientIp
-    // de-dupe 키: 동일 검색조건 + market IP. (가격이 IP market 종속이라 IP 포함.)
-    const key = JSON.stringify({ destination, checkin, checkout, rooms, currencyCode, languageCode, clientIp })
+    // de-dupe 키: 검색 네임스페이스(search:) + 동일 검색조건 + market IP. (가격이 IP market 종속이라 IP 포함.)
+    // 네임스페이스 접두로 autocomplete(ac:)·cashback(cb:)·상세(detail:) 키와 충돌 불가(적대리뷰 일관성).
+    const key = 'search:' + JSON.stringify({ destination, checkin, checkout, rooms, currencyCode, languageCode, clientIp })
 
     const payload = await dedupe(key, async () => {
       const raw = await searchHotels({

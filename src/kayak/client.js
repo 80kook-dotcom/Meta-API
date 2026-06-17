@@ -16,12 +16,14 @@ import { config } from '../config.js'
 
 /** KAYAK 호출 실패를 의미있는 코드로 감싸는 에러. */
 export class KayakError extends Error {
-  constructor(message, { status, code, body } = {}) {
+  constructor(message, { status, code, body, retryable = false } = {}) {
     super(message)
     this.name = 'KayakError'
     this.status = status ?? 502 // 중계→앱 기본 502(업스트림 오류)
     this.code = code ?? 'KAYAK_UPSTREAM_ERROR'
     this.body = body
+    // 일시(transient) 오류 여부 — 폴링 중 재시도 가능(네트워크/타임아웃/업스트림 5xx·429). S6·#22.
+    this.retryable = retryable
   }
 }
 
@@ -72,19 +74,23 @@ export async function fetchOnce(url, { headers = {}, ndjson = false, signal } = 
     res = await fetch(url, { headers, signal: timeoutSignal })
   } catch (e) {
     const aborted = e?.name === 'AbortError' || e?.name === 'TimeoutError'
+    // 네트워크/타임아웃은 일시 오류 → 폴링 재시도 대상(retryable).
     throw new KayakError(
       aborted ? `KAYAK 응답 타임아웃(${config.requestTimeoutMs}ms)` : `네트워크 오류: ${e?.message}`,
-      { status: 504, code: aborted ? 'KAYAK_TIMEOUT' : 'KAYAK_NETWORK_ERROR' },
+      { status: 504, code: aborted ? 'KAYAK_TIMEOUT' : 'KAYAK_NETWORK_ERROR', retryable: true },
     )
   }
 
   const bodyText = await res.text()
   if (!res.ok) {
+    // 일시 오류(재시도 가치 있음): 업스트림 5xx·429(rate-limit). 4xx(400/403 등)는 요청 자체 문제 → terminal.
+    const retryable = res.status >= 500 || res.status === 429
     // 400/403 등 — KAYAK 본문(있으면)을 그대로 진단에 싣되 키는 노출 안 됨(URL 만 redact).
     throw new KayakError(`KAYAK ${res.status} (${redactUrl(url)})`, {
       status: res.status === 403 || res.status === 400 ? 502 : res.status,
       code: `KAYAK_HTTP_${res.status}`,
       body: bodyText.slice(0, 500),
+      retryable,
     })
   }
 
@@ -115,16 +121,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 export async function callKayak(url, { headers = {}, ndjson = false, poll = false } = {}) {
   if (!poll) return fetchOnce(url, { headers, ndjson })
 
-  const { intervalMs, maxAttempts, timeoutMs } = config.poll
+  const { intervalMs, maxAttempts, timeoutMs, maxTransientRetries } = config.poll
   const deadline = Date.now() + timeoutMs
   let last
+  // 연속 일시오류 카운터(S6·#22). deadline 안에서 재시도하되 연속 transient 가 상한을 넘으면 포기 —
+  // 업스트림 장애 시 KAYAK·자체 서버를 계속 두드리지 않도록 보호(codex 결정3).
+  let consecutiveTransient = 0
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const remaining = deadline - Date.now()
     if (remaining <= 0) break
     // 폴링 1회는 남은 전체 타임아웃과 단일 요청 타임아웃 중 작은 값으로 제한.
     const perCall = Math.min(remaining, config.requestTimeoutMs)
-    last = await fetchOnce(url, { headers, signal: AbortSignal.timeout(perCall) })
-    if (last?.isComplete) return last
+    try {
+      last = await fetchOnce(url, { headers, signal: AbortSignal.timeout(perCall) })
+      consecutiveTransient = 0 // 성공 응답(미완성이라도) → 연속 카운터 리셋.
+      if (last?.isComplete) return last
+    } catch (e) {
+      // terminal(4xx 등 재시도 무의미)은 즉시 전파. 일시 오류만 상한 내 재시도.
+      if (!(e instanceof KayakError) || !e.retryable) throw e
+      consecutiveTransient += 1
+      if (consecutiveTransient > maxTransientRetries) throw e // 연속 transient 상한 초과 → 포기.
+    }
     if (attempt < maxAttempts && deadline - Date.now() > intervalMs) await sleep(intervalMs)
   }
   // 미완성으로 종료 — 부분응답 대신 명확한 타임아웃(codex 권고: 데모는 504+메시지).

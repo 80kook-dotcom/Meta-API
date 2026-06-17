@@ -3,9 +3,10 @@
  * "중계 경유로 앱 타입 실데이터가 나온다 + 키 누출 0"을 증명한다(개발실 IP 58.75.223.130 망에서만 200).
  *
  * 실행: npm run test:route
- * 검증: ① /health phase=S5-cashback  ② /api/autocomplete 앱 AutocompleteItem[]  ③ /api/hotels 앱 {results,totalCount}
+ * 검증: ① /health phase=S6-ops  ② /api/autocomplete 앱 AutocompleteItem[]  ③ /api/hotels 앱 {results,totalCount}
  *       ④ 🔒 응답 본문에 apiKey 흔적 0  ⑤ 필수 파라미터 누락 → 400  ⑥ /api/hotel/:id 상세
  *       ⑦ de-dupe  ⑧ /api/cashback 라벨 게이팅(누락 400·잘못된 라벨 400)+실데이터 CashbackTxn[]
+ *       ⑨ S6 운영: 통화/언어 허용목록 400 · /internal/health 진단 · 캐시백 no-store · 자동완성 캐시
  */
 import { createApp } from '../src/app.js'
 
@@ -30,14 +31,14 @@ async function main() {
     const s = app.listen(PORT, () => res(s))
   })
   L('═'.repeat(64))
-  L(`  S5 라우트 실측  ${BASE}`)
+  L(`  S6 라우트 실측  ${BASE}`)
   L('═'.repeat(64))
 
   try {
-    // ① /health
+    // ① /health (개발 모드 = 상세)
     L('\n[1] GET /health')
     const health = await (await fetch(`${BASE}/health`)).json()
-    check(health.phase === 'S5-cashback', 'phase=S5-cashback', health.phase)
+    check(health.phase === 'S6-ops', 'phase=S6-ops', health.phase)
     check(health.secretsLoaded === true, 'secretsLoaded=true (키 로드)', JSON.stringify(health.missingSecrets))
 
     // ② /api/autocomplete
@@ -188,6 +189,31 @@ async function main() {
       check(/^\d{4}-\d{2}$/.test(c.paymentMonth) || c.paymentMonth === '', 'paymentMonth YYYY-MM')
       L(`     첫 거래: ${c.bookingDate} · ${c.hotelName}(${c.hotelCity}) · ${c.siteBrandCode} · 예약 ₩${c.localisedBookingValue?.toLocaleString?.()} · 캐시백 ₩${c.cashbackAmountLocalised?.toLocaleString?.()} · ${c.status} · 정산 ${c.paymentMonth}`)
     }
+
+    // ⑨ S6 운영 검증 — 통화/언어 허용목록(#21) · /internal/health · 캐시백 no-store
+    L('\n[9] S6 운영 검증')
+    // 9-1 비KRW 통화 → 400 UNSUPPORTED_CURRENCY (KAYAK 호출 전 단락)
+    const curBad = await fetch(`${BASE}/api/hotels?destination=${encodeURIComponent(dest)}&checkin=${checkin}&checkout=${checkout}&currencyCode=USD`)
+    const curBadBody = await curBad.json().catch(() => ({}))
+    check(curBad.status === 400 && curBadBody.error === 'UNSUPPORTED_CURRENCY', '비KRW 통화 → 400 UNSUPPORTED_CURRENCY(#21)', `${curBad.status}/${curBadBody.error}`)
+    // 9-2 비허용 언어 → 400 UNSUPPORTED_LANGUAGE
+    const langBad = await fetch(`${BASE}/api/hotels?destination=${encodeURIComponent(dest)}&checkin=${checkin}&checkout=${checkout}&languageCode=en_US`)
+    const langBadBody = await langBad.json().catch(() => ({}))
+    check(langBad.status === 400 && langBadBody.error === 'UNSUPPORTED_LANGUAGE', '비허용 언어 → 400 UNSUPPORTED_LANGUAGE(#21)', `${langBad.status}/${langBadBody.error}`)
+    // 9-3 /internal/health (개발=시크릿 미설정 → 노출). security 게이트 상태 진단.
+    const ih = await fetch(`${BASE}/internal/health`)
+    const ihBody = await ih.json().catch(() => ({}))
+    check(ih.status === 200 && ihBody.phase === 'S6-ops' && ihBody.security, '/internal/health 200 + security 진단', `relayAuth=${ihBody.security?.relayAuth} rate=${ihBody.security?.rateLimitPerMin} hops=${ihBody.security?.trustProxyHops}`)
+    check(!/apiKey/i.test(JSON.stringify(ihBody)), '🔒 /internal/health 에 apiKey 없음(키 이름만)')
+    // 9-4 캐시백 응답 Cache-Control: no-store
+    const cbHdr = await fetch(`${BASE}/api/cashback`)
+    check(cbHdr.headers.get('cache-control') === 'no-store', '/api/cashback Cache-Control: no-store(codex)', cbHdr.headers.get('cache-control') ?? '없음')
+    // 9-5 자동완성 단기 캐시 — 동일 q 연속 2회 둘 다 200(2번째 캐시 적중·#22)
+    const [a1, a2] = await Promise.all([
+      fetch(`${BASE}/api/autocomplete?q=${encodeURIComponent('부산')}`),
+      fetch(`${BASE}/api/autocomplete?q=${encodeURIComponent('부산')}`),
+    ])
+    check(a1.status === 200 && a2.status === 200, '자동완성 동시 2회 둘 다 200(캐시/in-flight 공유·#22)', `${a1.status}/${a2.status}`)
   } catch (e) {
     pass = false
     L(`\n❌ 예외: ${e?.code ?? ''} ${e?.message ?? e}`)
@@ -196,7 +222,7 @@ async function main() {
   }
 
   L('\n' + '═'.repeat(64))
-  L(pass ? '  ✅ S5 라우트 실측 통과' : '  ❌ S5 라우트 실측 실패 — 위 ✗ 확인')
+  L(pass ? '  ✅ S6 라우트 실측 통과' : '  ❌ S6 라우트 실측 실패 — 위 ✗ 확인')
   L('═'.repeat(64))
   process.exitCode = pass ? 0 : 1
 }

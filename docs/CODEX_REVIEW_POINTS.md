@@ -288,6 +288,38 @@ S5 고유 결정 5건(D1~D5: #10 상태판정·#11 라벨 IDOR/유출 포함) re
 - **이관(Meta-Re 연동 트랙)**: [critical] 앱이 `?labels=` 미전달(앱 측 배선·MSW 단계라 미발현·S2/S3 와 동일 트랙) / [major] `formatShortKo('')`→`NaN.NaN(undefined)`(중계 출력 `''` 는 정직·근본은 앱 렌더 가드·S3 사진탭 tag 선례).
 - refuted 6건(배열쿼리는 이미 안전·toYmd 오프셋 안전 등) 자체 재검토 타당. 수정 후 회귀 `npm test` 89/89 + 라우트 재실측(배열쿼리·날짜역전 추가) 통과.
 
+## codex 자문 결과 — S6 운영 전환 (2026-06-17 · 실제 호출 성공)
+S6 고유 결정 5건(#12~#14 운영·#1/#13 client IP·#21 통화·#22 쿼터·#11/D2 잔여 IDOR) read-only 자문. 5건 전부 동의, 2건 정교화 채택:
+1. **[결정1·#16/#12/#13] 운영모드 강제**: codex **fail-fast** — 키를 쥔 PUBLIC 프록시는 '불완전 기동'보다 '기동 실패'가 안전(warn-only 는 운영에서 거의 누락). → `RELAY_ENV=production` 시 시크릿/rate-limit/CORS(localhost·빈목록)/키 미흡이면 기동 중단. **채택**.
+2. **[결정2·#11/D2] 캐시백 라벨 IDOR**: codex **정교화** — label-only HMAC 은 영구 bearer token → **exp(만료) 바인딩** + 짧은 만료 권고(nonce 는 비PII·공개 라벨엔 과함). → `HMAC-SHA256(label.exp)` + `timingSafeEqual` + maxAge 초과 거부 + `Cache-Control: no-store` + sig 로그 redaction. **채택**.
+3. **[결정3·#22] 폴링 transient 재시도**: codex **deadline + 연속 상한 3회** — 12s 는 UX 예산, 연속 상한은 장애 시 업스트림 과호출 보호. → 네트워크/타임아웃/5xx·429=retryable, 4xx=terminal, 연속 transient `maxTransientRetries` 초과 시 포기. **채택**.
+4. **[결정4·#21] 통화**: codex **비KRW 400 거부** — KRW 고정 계정에서 무음 coerce 는 오표기·정산 혼선. 누락만 기본값, 명시 비KRW 는 계약 위반 거부. + languageCode 도 동일 allowlist 권고. → `lib/market.js` 통화·언어 허용목록. **채택**.
+5. **[결정5·#3] /health 운영 축소**: codex **별도 /internal/health** — 같은 URL 에서 secret 유무로 응답을 바꾸기보다 보호된 별도 엔드포인트가 명확. → 공개 `/health`={ok:true}(운영), 상세는 `/internal/health`(relaySharedSecret 헤더). **채택**.
+
+> codex 추가 리스크(전부 운영 배포 런북 README 에 문서화): ⓐ relaySharedSecret·CORS 는 인증 아님(브라우저 노출·curl 우회) → 진짜 보호는 리버스프록시/CF Access/인증 백엔드 ⓑ CF-Connecting-IP/XFF 는 신뢰 프록시 뒤에서만 신뢰·원 서버 직접 노출 시 헤더 위조 → 방화벽 차단 ⓒ sig 는 query·로그·Referer 잔류 → 짧은 exp·no-store·redaction ⓓ languageCode/country/device 도 통화처럼 SSOT 고정.
+
+## S6 운영 전환 — 구현·검증 완료 (2026-06-17)
+- **신규 모듈**: `lib/scrub.js`(apiKey/sig 가림·errorHandler 에서 이동·re-export) / `lib/logger.js`(JSON 라인 + scrub 통과) / `lib/labelToken.js`(signLabel·verifyLabelToken·HMAC-SHA256(label.exp)·timingSafeEqual 길이가드·exp 만료·maxAge 초과 거부) / `lib/market.js`(resolveCurrency·resolveLanguage 허용목록 400).
+- **config.js**: `relayEnv`/`isProduction`, `market`(통화·언어 SSOT+허용목록), `poll.maxTransientRetries`(3), `cashback.labelHmacSecret`/`labelTokenMaxAgeSec`(300), `validateProductionConfig()`(fatal 5종+warn 2종).
+- **server.js**: 기동 직전 검증 → fatal 시 throw(프로세스 종료·포트 미바인딩). 구조화 로깅.
+- **app.js**: ⚠ **CORS 를 /api 로만 한정**(전역 CORS 는 운영 allowNoOrigin=false 에서 인프라 헬스체크까지 403 으로 막음 — **라이브 검증으로 적발·수정**). 운영 `/health`={ok:true} 축소. `/internal/health`(relaySharedSecret 헤더 보호·미설정=개발 노출·security 게이트 진단).
+- **kayak/client.js**: `KayakError.retryable`. fetchOnce 가 네트워크/타임아웃/5xx·429=retryable, 4xx=terminal 표시. callKayak 폴링이 retryable 만 deadline·연속 상한 내 재시도(terminal 즉시 전파). (S2 적대리뷰 이관 #22 해소)
+- **routes**: hotels/hotel 통화·언어 검증(비허용 400). autocomplete dedupe 단기 캐시(`ac:` 키·market 무관·쿼터 절감). cashback HMAC 게이팅(secret 설정 시)·`Cache-Control: no-store`·구조화 truncation 로깅.
+- **단위테스트 `npm test` 123/123**(기존 89 + labelToken 9·config 11·market 4·client-retry 6·health 통합 5·hardening sig 1). 합성·hermetic(client-retry 는 global.fetch 스텁, health 는 listen(0)).
+- **라이브 실측 `npm run test:route`**(개발실 IP·실 KAYAK): 기존 ①~⑧ 전부 재통과(자동완성 6·검색 250·상세 노보텔 158요금·캐시백 게이팅) + **⑨ S6**: 비KRW 통화 400·비허용 언어 400·/internal/health 진단(키 누출0)·캐시백 no-store·자동완성 동시 2회 200.
+- **운영 모드 직접 실측**: `RELAY_ENV=production` 미흡 설정 → fatal 4건 로그 후 **기동 거부(exit 1·포트 미바인딩)**. 정상 운영설정 → 기동 성공·`/health`={ok:true}(Origin 없이 도달)·`/internal/health` 시크릿 없음 401/헤더 200·`/api` Origin 없음·오류 Origin 403 CORS.
+- **이관(Meta-Re 연동 트랙)**: 앱 측 MSW/mocks 제거·`/api/deals` 누수 점검·`_redirects` /api 제외·통화/번역 i18n·CSP(#14·#12 앱면). 앱이 캐시백 sig 전달(운영 HMAC 켤 때)·검색 currency/language 전달.
+
+### S6 적대 리뷰(다차원 워크플로 `wf_edf93619`·22 에이전트·Explore 읽기전용) — confirmed 8(원시 17→검증 8·refuted 8·uncertain 1)
+5차원(계약·보안·견고성·결정준수·엣지) 병렬 + 발견별 적대 검증. 결과: **4 수정(중계 코드)·1 거부·3 문서/핸드오프**.
+- **수정 ① [critical 견고성] 숫자 config NaN 미검증**: 잘못된 env(오타)→`Number()`→NaN 이 폴링 루프(즉시 실패)·dedupe TTL(캐시 무력화)·라벨 maxAge(TTL 우회)로 무음 전파 → **`num()` 헬퍼로 기동 시 검증(NaN/음수/비정수/범위 위반 throw·fail-fast)**. port·poll 4종·requestTimeout·autocompleteCacheTtl·cashback 4종·rateLimit·trustProxyHops 전부 적용. (#8 labelTokenMaxAgeSec 동일 해소)
+- **수정 ② [major 보안] 운영 스택 트레이스 로그**: errorHandler 가 unhandled 스택을 무조건 로깅(scrub 안 됨·내부 구조 노출) → **운영(isProduction)에서는 stack 미기록**(개발만).
+- **수정 ③ [major 보안] /internal/health 이중 방어선**: 시크릿 빈 문자열이면 인증 스킵 노출(운영은 validate 가 fatal 로 막지만 server.js 미경유 진입 대비) → **운영+시크릿 미설정 시 503**.
+- **수정 ④ [uncertain 견고성] 캐시 키 네임스페이스**: 검증자도 실제 충돌 없음 인정(ac:/cb: 접두 vs JSON `{`) → 일관성/방어 차원 **검색 키 `search:`·상세 `detail:` 접두 추가**.
+- **거부 ① [minor 보안] trustProxyHops=0 운영 fatal 승격**: **거부**. 문서상 운영 배포=고정 IP 서버(직결)이고 직결이면 hops=0 이 정답(소켓 IP=손님 IP). KAYAK 이 CF egress 를 화이트리스트 안 해 CF 뒤 배포 불가 → fatal 승격은 정상 직결 배포를 깨뜨림. 현행 조건부 warn 유지가 옳음.
+- **문서/핸드오프(중계 코드 정확·앱/운영 트랙)**: ⓐ[#1] 앱이 currency/language 미전달→기본 KRW/ko_KR 폴백(안전·다통화 확장 시 앱 협의 필요·README 런북) ⓑ[#2] 운영 /health={ok:true}→인프라 헬스체크는 HTTP 200 만 확인·상세는 /internal/health(README 런북) ⓒ[#3] 앱이 캐시백 exp/sig 미전달→운영서 `CASHBACK_LABEL_HMAC_SECRET` 켜기 전 **앱 배포 선행 필수**(안 그러면 캐시백 401·README 런북 ④).
+- refuted 8건(캐시키 실충돌 없음 외 7건) 자체 재검토 타당. 수정 후 회귀 `npm test` **131/131**(123+num 7+503 1) + 라우트 실측(⑨ 포함) 재통과.
+
 ## 갱신 이력
 - **2026-06-17 v1**: 워크플로(33 에이전트·`wf_10ee2a1b`) 22 keep + 직접분석 + 검사관 교차검증(코드근거 5/6 일치·S0 CORS 표현 1건 정정).
 - **2026-06-17 v1.1**: codex S0 골격 자문 1회 성공(위 4건). high 14건은 각 세션 착수 직전 codex 호출 예정.
@@ -296,3 +328,4 @@ S5 고유 결정 5건(D1~D5: #10 상태판정·#11 라벨 IDOR/유출 포함) re
 - **2026-06-17 v1.3 (S2 완료)**: #4·#5·#7·#17·#18 실측 프로브 + codex 자문(성공·4건 동의·2건 정교화) 반영. 어댑터 6모듈 + 라우트 실연결. 단위 34/34 + 라우트 실측(250건 실데이터·키누출0) 통과. userTrackId 필수 버그 라이브로 적발·수정. 상세는 위 3개 S2 섹션. 잔여 high(#6·#8~#14 등)는 S3~S6 착수 직전 codex 호출.
 - **2026-06-17 v1.4 (S3 완료)**: #6·#11·#19·#20 + policies·de-dupe codex 자문(성공·#19/#20facility 동의·#20propertyType/policies/dedupe 정교화) 반영. 상세 어댑터 + propertyType 캐시 + 라우트 실연결. 단위 66/66 + 라우트 실측(노보텔·이비스 실데이터·키누출0). 적대 리뷰(`wf_f77cab0e`·25 에이전트) confirmed 7=6수정(results정제 #2/#4/#5·평점방어 #3·캐시 #6/#7)+1 Meta-Re 이관(사진탭 tag). 상세는 위 3개 S3 섹션. 잔여 high(#8 p=라벨·#9 인코딩·#10 Approved·#11 IDOR·#12~#14 운영)는 S4~S6 착수 직전 codex 호출.
 - **2026-06-17 v1.5 (S5 완료)**: #10 상태판정·#11 라벨 IDOR/유출 codex 자문(성공·D1~D5 전부 동의·정산임계 26일+USD폴백 KRW조건 2건 보수화) 반영. 캐시백 어댑터 + 라우트 실연결(라벨 게이팅). 단위 89/89 + 라우트 실측(라벨 게이팅 5종·유효라벨 200·키누출0·리포팅 바배열 프로브). 적대 리뷰(`wf_26974b3c`·22 에이전트) confirmed 11=6수정(배열거부·dedupe TTL·정렬결정성·음수클램프·날짜역전·통화게이트)+3주석/테스트(UTC창·toYmd오프셋·truncation)+2 Meta-Re 이관(앱 labels 전달·formatShortKo 빈날짜). 상세는 위 3개 S5 섹션. S4(딥링크 p=)는 앱 레포에서 완료. 잔여 high(#12~#14 운영·#1/#13 client IP·#21 통화·#22 쿼터)는 S6 착수 직전 codex 호출.
+- **2026-06-17 v1.6 (S6 완료)**: #12~#14·#1/#13·#21·#22·#11/D2·#3 codex 자문(성공·결정1~5 동의·라벨 exp 바인딩+ /internal/health 2건 정교화) 반영. 운영모드 fail-fast + /health 축소 + /internal/health + 캐시백 라벨 HMAC + 폴링 transient 재시도 + 자동완성 캐시 + 통화/언어 허용목록 + 구조화 로깅. 단위 123/123 + 라우트 실측(⑨ S6 포함) + 운영 모드 직접 실측(fail-fast exit1·정상기동 /health 축소). **CORS 를 전역→/api 한정으로 수정(라이브 검증이 인프라 헬스체크 403 차단 적발)**. 적대 리뷰(`wf_edf93619`·Explore 읽기전용) 결과는 위 "S6 운영 전환" 섹션 하단 참조. 상세는 위 2개 S6 섹션. **세션 S0~S6 전체 완료(중계 서버 코드·설정 완비). 실 배포는 고정 IP + KAYAK 화이트리스트 외부 절차 + Meta-Re 앱 연동 트랙.**

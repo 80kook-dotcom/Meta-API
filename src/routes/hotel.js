@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { searchHotel } from '../kayak/endpoints.js'
 import { adaptHotelDetail } from '../adapters/hotel.js'
 import { dedupe } from '../lib/dedupe.js'
+import { resolveCurrency, resolveLanguage } from '../lib/market.js'
 
 const router = Router()
 
@@ -28,14 +29,19 @@ router.get('/hotel/:id', async (req, res, next) => {
     const checkin = String(req.query.checkin ?? '').trim()
     const checkout = String(req.query.checkout ?? '').trim()
     const rooms = String(req.query.rooms ?? '2').trim() || '2'
-    const currencyCode = String(req.query.currencyCode ?? 'KRW').trim() || 'KRW'
-    const languageCode = String(req.query.languageCode ?? 'ko_KR').trim() || 'ko_KR'
+    // 통화·언어는 허용목록 검증(S6·#21). 비허용 값은 400(무음 오표기 금지). 누락은 config 기본(SSOT).
+    const cur = resolveCurrency(req.query.currencyCode)
+    if (cur.error) return res.status(400).json(cur.error)
+    const lang = resolveLanguage(req.query.languageCode)
+    if (lang.error) return res.status(400).json(lang.error)
+    const currencyCode = cur.value
+    const languageCode = lang.value
     // userTrackId 는 검색 패밀리 필수 파라미터(없으면 400). 앱 미전달 시 폴백 생성.
     const userTrackId = String(req.query.userTrackId ?? '').trim() || `relay-${randomUUID()}`
 
     const clientIp = req.clientIp
-    // de-dupe 키: 상세 네임스페이스(detail) + 호텔 + 조건 + market IP. (가격이 IP market 종속이라 IP 포함.)
-    const key = JSON.stringify({ detail: hotelKey, checkin, checkout, rooms, currencyCode, languageCode, clientIp })
+    // de-dupe 키: 상세 네임스페이스(detail:) + 호텔 + 조건 + market IP. (가격이 IP market 종속이라 IP 포함.)
+    const key = 'detail:' + JSON.stringify({ hotelKey, checkin, checkout, rooms, currencyCode, languageCode, clientIp })
 
     const payload = await dedupe(key, async () => {
       const raw = await searchHotel({
