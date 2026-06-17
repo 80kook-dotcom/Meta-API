@@ -1,0 +1,1263 @@
+#%RAML 1.0
+title: Reporting API
+version: v2
+mediaType: application/json
+baseUri: /api
+description: |
+  Reporting API
+
+documentation:
+  - title: Performance data
+    content: |
+      ## Disclaimer
+
+      Different integration types can have different limitations in terms of the data we can share via the reporting API and NAP. Please note that not every field will be available in your reporting depending on your integration.
+
+      ## Transport
+
+      The API provides a REST interface using HTTP queries.
+
+      Unless stated otherwise, responses to the queries are returned as HTTP content encoded as JSON text,
+      there is also the option to return results as CSV (comma separated values).
+
+      To select between the formats set the `Accept` header to the appropriate value.
+
+      For `JSON` (default):
+
+      Request header **Accept**: `application/json`
+
+      Response header **Content-Type**: `application/json; charset=utf-8`
+
+      For `CSV`:
+
+      Request Header **Accept**: `text/csv`
+
+      Response header **Content-Type**: `text/csv; charset=utf-8;`
+
+      ## API Root
+
+      Unless otherwise stated, the root URI (api_root) for the API is:
+
+      `https://api.affiliates.hotelscombined.com/api`
+
+      The URIs of methods in this API should be appended to the root URI.
+
+      ## API Versions
+
+      Currently, we only support API version 2.0. The older API versions - 1.0 and 1.1 are no longer supported.
+      The recommendation is to move to version 2.0 to obtain access to the most comprehensive data to date.
+
+      the API version must be specified in one of two ways:
+        - `api-version` query parameter (e.g. `api-version=2.0`)
+        - `X-Version` header (e.g. `2.0`)
+
+      There are differences between versions and their capabilities. These differences are:
+
+      ### Version 2.0
+
+      There are a lot of changes between versions 1.1 and 2.0, hence the jump to a new major version.
+
+      There is a migration guide at the end of this document to help understand all the changes between versions.
+      The main purpose of version 2.0 is to allow access to reporting dimensions for the travel verticals: flights, cars and hotels.
+      As well as to continue providing access to the fundamental metrics, like commission.
+
+      Here are the new 2.0 properties that are available (Format: Response property | Type | Availability | Comment):
+        - `SiteBrandCode` | string | Transaction | e.g. Kayak, Hotelscombined etc
+        - `OriginAirportCode` | string | Transaction
+        - `OriginAirportName` | string | Transaction
+        - `DestinationAirportCode` | string | Transaction
+        - `DestinationAirportName` | string | Transaction
+        - `FlightOriginCountryCode` | string | Transaction
+        - `FlightOriginCityName` | string | Transaction
+        - `FlightDestinationCountryCode` | string | Transaction
+        - `FlightDestinationCityName` | string | Transaction
+        - `CarOriginCountryCode` | string | Transaction
+        - `CarOriginCityName` | string | Transaction
+        - `CarDestinationCountryCode` | string | Transaction
+        - `CarDestinationCityName` | string | Transaction
+
+      As well as the new data available in responses, there are new endpoints available to access this data:
+        - `/transactions/{vertical}`
+
+      `vertical` is optional
+
+      If vertical is not supplied, the results returned will only contain fundamental transaction metrics and dimensional data.
+
+      If vertical is supplied, then the result will be filtered to that vertical, and vertical-specific dimensions will also be returned.
+
+      Supported verticals are `All`, `Hotel`, `Car`, and `Flight`.
+
+        - `/transactions/{vertical}`
+
+      `vertical` is optional
+
+      If vertical is not supplied, the results returned will only contain fundamental transactional click-based metrics and dimensional data.
+
+      If vertical is supplied, then the result will be filtered to that vertical, and vertical-specific dimensions will also be returned.
+
+      Supported verticals are `All`, `Hotel`, `Car`, and `Flight`.
+
+        - `/transactions/leads/{vertical}`
+
+      `vertical` is optional
+
+      If vertical is not supplied, the results returned will only contain fundamental transactional booking-based metrics and dimensional data.
+
+      If vertical is supplied, then the result will be filtered to that vertical, and vertical-specific dimensions will also be returned.
+
+      Supported verticals are `All`, `Hotel`, `Car`, and `Flight`.
+
+      ### Version 1.1
+
+      Here are the changed 1.1 properties (Format: Response property | Version 1.0 return type | Version 1.1 return Type):
+        - `BookingID` | int | string
+        - `LeadID` | int | string
+
+      Here are the new 1.1 properties that are available (Format: Response property | Type | Availability):
+        - `Vertical` | Vertical | Transaction and Performance endpoints
+        - `IntegrationCode` | string | Transaction and Performance endpoints
+        - `PValue` | string | Transaction
+        - `Eid` | bool | Transaction
+        - `Cid` | string | Transaction
+        - `Lid` | string | Transaction
+        - `TransactionType` | Transaction Types | Transaction
+        - `TransactionStatus` | Transaction Types | Transaction
+
+      ### Version 1.0
+
+      Will not return transaction data that occurs after 01-May-2022.
+
+      ## Reporting API Access
+
+      The KAYAK Reporting API can be used to access your performance data in two formats:
+        - Transaction report: allows to extract lead or booking information on a granular, transactional level.
+        - Performance report: will deliver aggregated metrics data with user-specified groupings.
+
+      To gain access to the API, the partner will need to provide their IP Addresses that will be used to retrieve data from the API.
+      In addition to allowing the data to be accessed from the specified IP addresses, KAYAK will create and share a dedicated API key with the partner.
+      Both forms of authentication are needed to access reporting data.
+
+      ## Paging
+
+      Paging will allow results of a request to be split into a certain number of results per page, instead of returning all results at once.
+      The api currently supports paging via 2 URL parameters: `page`, `pagesize`.
+
+      For paging to work, the `pagesize` must be supplied. The `page` parameter is optional, but if not supplied, the results will always return the first page of results.
+
+      When paging is activated, there will be a response header returned with paging metadata. The header (`X-Pagination`) will contain a JSON object:
+      ```
+      {
+        "CurrentPage": 1,
+        "TotalItems": 100,
+        "TotalFilteredItems":8004
+        "TotalPages": 10,
+        "PageSize": 10,
+        "Links": {
+            "Next": {
+                "Href": "/api/transactions/all?apikey=[api_key]&startdate=2022-05-01&enddate=2022-05-02&PageSize=10&Page=1"
+            }
+      }
+      ```
+      - `CurrentPage` - Current page of results
+      - `TotalItems` - Total number of transactions that would have been returned if paging was not turned on
+      - `TotalFilteredItems` - Number of transactions returned with filtering applied
+      - `TotalPages` - Number of pages of transactions that can be retrieved using the current request
+      - `PageSize` - Number of results to return per page
+      - `Links` - Contains `NEXT` and `PREV` objects which contain a Href property with a value that is the url to retrieve the `NEXT` or `PREV` page of results
+
+      **NOTE**: `NEXT` and `PREV` will only appear if there are results to retrieve. I.e in the example above as we are on page 1 there is no `PREV` property as there are no results before page 1.
+
+      ## Caching
+
+      The API will cache results by default. It will cache results for approximately 1 hour from the time the request was made.
+
+      The cache key is based on the request, the request will be used to formulate a key to store the results.
+      If any parameter in the request is modified this will mean a new cache key and any results will be stored against this new key.
+
+      Caching can be bypassed/turned off per request if needed. To do this there are two ways:
+      - url parameter `IsCacheEnabled` (set to `false`)
+      - header `cache-control` (set to `no-store`)
+
+      It is also possible to tell the cache how long to cache results for. To do this there are a couple of url parameters that can be supplied in a request:
+      - `CacheSlidingExpiration` - How long (in seconds) to keep the same results cached when the same request is made
+      - `CacheAbsoluteExpiration` - The absolute time (in seconds) to keep the current results cached for this request
+
+      ## Migration from 1.1.
+
+      The 2 main transaction reporting endpoints that are available in version 2 will supply the core data that is available.
+      Each specific vertical endpoint will build on top of the core endpoint to supply specific vertical dimensional data.
+
+      The two main transactional endpoints are:
+      - `/transactions`
+      - `/transactions/leads`
+
+      Each of these can then have a specific supported vertical added into the path of the request. Supported verticals at this time are Flight, Car and Hotel.
+
+      E.g.:
+      - `/transactions/flights`
+      - `/transactions/cars`
+      - `/transactions/hotels`
+
+      There is also an `ALL` vertical, if supplied to an endpoint it will return all dimensions available and the core data.
+
+      E.g.:
+      - `/transactions/all`
+
+      **NOTE**: this can return a lot of data in a response and is not recommended. It is recommended to use one of the more specific verticals, e.g. `Flights`.
+
+      Depending on what transactional data you require, will depend on what endpoint you will make a request to.
+
+      As well as the new endpoints, there are changes to some properties that were returned in version 1.1, these are outlined below (Format: 1.1 -> 2.0 | Comment).
+
+      ### All response
+
+      - `ClickId` -> `LeadID` | Renamed.
+      - `LeadDate` -> `Date` | Renamed.
+      - `LeadCheckin` -> `ClickStartDate` | Renamed.
+      - `LeadCheckout` -> `ClickEndDate` | Renamed.
+      - `BookingCheckin` -> `LeaBookingStartDatedID` | Renamed.
+      - `BookingCheckout` -> `BookingEndDate` | Renamed.
+      -  -> `BrandID` | Removed.
+      - `TransactionType` -> `TransactionType` | Returned as an object. Changed type.
+      - `TransactionTypeCode` -> `TransactionType`
+      - `TransactionStatus` -> `TransactionStatus` | Returned as an object. Changed type.
+      - `TransactionStatusCode` -> `TransactionStatus`
+
+      ### Lead response
+
+      - `LeadID` -> `ClickId` | Renamed.
+      - `LeadDate` -> `Date` | Renamed.
+      - `LeadCheckin` -> `ClickStartDate` | Renamed.
+      - `LeadCheckout` -> `ClickEndDate` | Renamed.
+
+/ping:
+  displayName: Ping
+  description: The API can be pinged to verify the connection.
+  is: [ hasStandardErrors ]
+  get:
+    queryParameters:
+      apiKey:
+        type: string
+        description: API key assigned to the affiliate.
+    responses:
+      200:
+        body:
+          application/json:
+            type: PingResponse
+
+/performance:
+  displayName: Performance
+  description: Performance reports.
+  is: [ hasStandardErrors ]
+  get:
+    queryParameters:
+      apiKey:
+        type: string
+        description: API key assigned to the affiliate.
+      startDate:
+        type: date-only
+        description: |
+          The date from which the report will run.
+
+          Format: `yyyy-MM-dd`.
+      endDate:
+        type: date-only
+        description: |
+          The date until which the report will run (inclusive).
+
+          Format: `yyyy-MM-dd`.
+      aggregateBy?:
+        type: CommaSeparatedValueList
+        description: |
+          Used to specify by which dimension to group results.
+
+          See [AggregateOption](#ReportingAPIAggregateOption) for all valid values.
+        example: Month,Label
+      sort?:
+        type: CommaSeparatedValueList
+        description: Sort field and direction, comma-separated.
+        example: Commission,Revenue-desc
+      top?:
+        type: integer
+        description: Allows to limit the number of rows in the results to top results only according to sort field.
+      page?:
+        type: integer
+        description: The page number in the results.
+      pageSize?:
+        type: integer
+        description: How many results per page should be returned (required if paging is intended).
+      labels?:
+        type: CommaSeparatedValueList
+        description: Label used when the lead/booking was generated.
+        example: label1,label2
+      clientCountries?:
+        type: CommaSeparatedValueList
+        description: List of comma separated 2 char country codes.
+        example: AU,FR,US
+      languages?:
+        type: CommaSeparatedValueList
+        description: List of comma separated 2 char language codes.
+        example: EN,FR,DE
+      hotelCountryCodes?:
+        type: CommaSeparatedValueList
+        description: List of comma separated 2 char country codes.
+        example: AU,FR,US
+      providerCodes?:
+        type: CommaSeparatedValueList
+        description: List of comma separated provider codes.
+        example: BKS,IAN
+      deviceCategories?:
+        type: CommaSeparatedValueList
+        description: List of comma separated [Device category](#ReportingAPIDeviceCategory).
+        example: 0,1
+      commission?:
+        type: string
+        description: |
+          Range value (using doubles) separated by colon (:) or just a single starting value.
+
+          Will return results between the two values (inclusive). One value can be supplied to mimic greater than functionality.
+        examples:
+          example1: 0.1:10
+          example2: 0.01
+      verticals?:
+        type: CommaSeparatedValueList
+        description: List of comma separated [Vertical Codes](#ReportingAPIVerticalCode).
+        example: Hotel,Car,Flight
+      integrationCodes?:
+        type: CommaSeparatedValueList
+        description: List of comma separated integration codes.
+        example: kan_123,kan_2345_2345
+    responses:
+      200:
+        body:
+          application/json:
+            type: PerformanceResponse
+
+/transactions:
+  displayName: Transactions
+  description: |
+    Gets all transactions (leads and bookings).
+
+    As well as the fundamental or core metrics and dimensions, the reporting api can also return dimensional data for the `Flight`, `Car`, and `Hotel` dimensions.
+    The responses returned will include the core metrics and dimensions, plus the particular dimension that was requested.
+
+    You can request additional data by adding vertical value to path `/transactions/{vertical}`.
+    Some of the fields in the response depend (fields will be included or excluded) on this value.
+
+    Valid `{vertical}` values: `All`, `Car`, `Cars`, `Flight`, `Flights`, `Hotel`, `Hotels`.
+
+    **NOTE**: This report can return a lot of data. It is advisable to filter the results to improve the performance.
+    There are a number of ways to do this, either use the paging functionality or the filter parameters specified below.
+  is: [ hasStandardErrors ]
+  get:
+    is: [ transactionQueryParameters ]
+    responses:
+      200:
+        body:
+          application/json:
+            type: TransactionsResponse
+
+/transactions/leads:
+  displayName: Transactions - leads
+  description: |
+    Gets leads transactions.
+
+    As well as the fundamental or core metrics and dimensions, the reporting api can also return dimensional data for the `Flight`, `Car`, and `Hotel` dimensions.
+    The responses returned will include the core metrics and dimensions, plus the particular dimension that was requested.
+
+    You can request additional data by adding vertical value to path `/transactions/leads/{vertical}`.
+    Some of the fields in the response depend (fields will be included or excluded) on this value.
+
+    Valid `{vertical}` values: `All`, `Car`, `Cars`, `Flight`, `Flights`, `Hotel`, `Hotels`.
+
+    **NOTE**: This report can return a lot of data. It is advisable to filter the results to improve the performance.
+    There are a number of ways to do this, either use the paging functionality or the filter parameters specified below.
+  is: [ hasStandardErrors ]
+  get:
+    is: [ transactionQueryParameters ]
+    responses:
+      200:
+        body:
+          application/json:
+            type: TransactionsLeadsResponse
+
+types:
+  PingResponse:
+    properties:
+      message:
+        type: string
+        description: Answer to a ping.
+    example:
+      message: "pong"
+  PerformanceResponse:
+    description: Dimensions are only included in the output if they were used in the AggregateBy input parameter.
+    properties:
+      bookings?:
+        type: integer
+        description: Metric - count of bookings/sales.
+      commission?:
+        type: number
+        description: Metric - the sum of the affiliate commission.
+      leads?:
+        type: integer
+        description: Metric - count of click-outs.
+      revenue?:
+        type: number
+        description: Metric - the sum of the revenue is used as the basis for commission.
+      searches?:
+        type: integer
+        description: Metric - count of searches.
+      visits?:
+        type: integer
+        description: Metric - count of visits.
+      cancelledBookings?:
+        type: integer
+      vertical?:
+        type: Vertical
+        description: Dimension - Vertical of the transaction.
+      date?:
+        type: date-only
+        description: Dimension - date grouping.
+      integrationCode?:
+        type: string
+        description: Dimension - Integration code that generated the transaction.
+      languageCode?:
+        type: string
+        description: Dimension - 2-letter language code.
+      clientCountryCode?:
+        type: string
+        description: Dimension - 2-letter country code.
+      deviceCategory?:
+        type: integer
+        description: Dimension - [Device category](#ReportingAPIDeviceCategory).
+      label?:
+        type: string
+        description: Dimension - custom tracking parameter of the affiliate.
+      hotelCity?:
+        type: string
+        description: Dimension - city of the hotel.
+      hotelCountry?:
+        type: string
+        description: Dimension - country of the hotel.
+      hotelName?:
+        type: string
+        description: Dimension - name of the hotel.
+    example:
+      bookings: 2511
+      commission: 54193.76712
+      leads: 63868
+      revenue: 60215.2968
+      searches: 70189153
+      visits: 153
+      cancelledBookings: 25
+      vertical:
+        name: Hotel
+        code: Hotel
+  TransactionsResponse:
+    properties:
+      date?:
+        type: date
+        example: 2023-06-28T00:00:00
+      clickId?:
+        type: string
+        description: Unique identifier of the lead.
+        example: $ZAfXBFzjr$rTL6kYOi3Oy
+      clickStartDate?:
+        type: date
+        description: |
+          Date of the lead.
+
+          Format: `yyyy-MM-dd`.
+        example: 2023-07-01T00:00:00
+      clickEndDate?:
+        type: date
+        description: |
+          Check out date of lead.
+
+          Format: `yyyy-MM-dd`.
+        example: 2023-07-03T00:00:00
+      bookingDate?:
+        type: date
+        description: |
+          Date booking create.
+
+          Format: `yyyy-MM-dd`.
+
+          **NOTE**: Will only be populated if the transaction type is booking.
+        example: 2023-07-02T00:00:00
+      bookingId?:
+        type: string
+        description: |
+          Unique identifier of booking.
+
+          **NOTE**: Will only be populated if the transaction type is booking.
+        example: 72596104369261
+      bookingStartDate?:
+        type: date
+        description: |
+          Check in date of booking.
+
+          Format: `yyyy-MM-dd`.
+
+          **NOTE**: Will only be populated if the transaction type is booking.
+        example: 2023-07-01T00:00:00
+      bookingEndDate?:
+        type: date
+        description: |
+          Check out date of booking.
+
+          Format: `yyyy-MM-dd`.
+
+          **NOTE**: Will only be populated if the transaction type is booking.
+        example: 2023-07-03T00:00:00
+      revenue?:
+        type: double
+        description: Revenue used as basis for commission.
+        example: 1.21
+      commission?:
+        type: double
+        description: Commission from transaction.
+        example: 0.8
+      localisedCurrencyCode?:
+        type: string
+        description: |
+          The currency code configured for this affiliate through the AMI cashback configuration system.
+
+          This currency is used for all localized cashback calculations.
+        example: EUR
+      localisedBookingValue?:
+        type: double
+        description: |
+          The booking value converted from USD to the localized currency specified in `localisedCurrencyCode`.
+
+          Conversion is performed using the exchange rate applicable on the transaction date.
+        example: 145.32
+      cashbackAmountUSD?:
+        type: double
+        description: |
+          The cashback amount calculated in USD.
+
+          For percentage-based cashback, this is calculated as (`cashbackValue` / 100) × `bookingValue`.
+          For flat cashback, this represents the flat amount in USD equivalent.
+        example: 2.50
+      cashbackAmountLocalised?:
+        type: double
+        description: |
+          The cashback amount converted from USD to the localized currency specified in `localisedCurrencyCode`.
+
+          This value is derived by applying the exchange rate to `cashbackAmountUSD`.
+        example: 2.25
+      cashbackType?:
+        type: string
+        description: |
+          The type of cashback configuration applied to this transaction.
+
+          Valid values:
+          - `FLAT` - Fixed cashback amount per transaction
+          - `PERCENTAGE` - Percentage-based cashback calculated on booking value
+        example: PERCENTAGE
+      cashbackValue?:
+        type: double
+        description: |
+          The cashback value as configured in the cashback system.
+
+          For percentage-based cashback, this represents the percentage rate (e.g., 2.5 for 2.5%).
+          For flat cashback, this represents the fixed amount in the localized currency (e.g., 2.0 for 2 EUR).
+        example: 2.5
+      exchangeRate?:
+        type: double
+        description: |
+          The exchange rate from USD to the localized currency, applied based on the transaction date.
+
+          This rate is used to convert booking values and cashback amounts from USD to the localized currency.
+        example: 0.92
+      languageCode?:
+        type: string
+        description: 2-letter language code.
+        example: EN
+      deviceCategory?:
+        type: integer
+        description: The [Device category](#ReportingAPIDeviceCategory).
+        example: 1
+      localeCode?:
+        type: string
+        description: 2-letter locale code.
+        example: kr
+      productChannelCode?:
+        type: string
+        description: Product channel code of the transaction.
+        example: Distribution
+      clientCountryCode?:
+        type: string
+        description: 2-letter country code.
+        example: FR
+      label?:
+        type: string
+        description: Custom tracking parameter recorded by the transaction.
+      paymentMonth?:
+        type: date
+      vertical?:
+        type: Vertical
+        description: Object that represents the [Vertical](#ReportingAPIVertical) of the transaction.
+      integrationCode?:
+        type: string
+        description: Integration code that was used to generate the transaction.
+        example: kan-1234
+      siteBrandCode?:
+        type: string
+        description: Site that generated the transaction.
+        examples:
+          example1: Kayak
+          example2: HotelsCombined
+      transactionType?:
+        type: TransactionType
+        description: Type of transaction.
+      transactionStatus?:
+        type: TransactionStatus
+        description: Status of transaction.
+      eid?:
+        type: bool
+        description: |
+          Experiment ID
+
+          Can be used for anything where the KAYAK affiliate would like to pass a Boolean value (A/B testing, etc).
+
+          If not passed, it will be recorded as false.
+        example: 0
+      pid?:
+        type: string
+        description: |
+          Product ID
+
+          KAYAK description of affiliate product.
+        example: whitelabel
+      cid?:
+        type: string
+        description: |
+          Click ID
+
+          Granular tracking determined by the affiliate, generally represents each session or click to the
+          deeplinks in order to optimise marketing channels or product decisions.
+      lid?:
+        type: string
+        description: |
+          Location ID
+
+          Where on the affiliate site the product has been placed.
+        example: header
+      bookings?:
+        type: integer
+      originAirportCode?:
+        type: string
+        description: |
+          Origin airport code.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: WAW
+      originAirportName?:
+        type: string
+        description: |
+          Origin airport name.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: Frederic Chopin
+      destinationAirportCode?:
+        type: string
+        description: |
+          Destination airport code.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: ZTH
+      destinationAirportName?:
+        type: string
+        description: |
+          Destination airport name.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: Dionsios Salomos
+      flightOriginCountryCode?:
+        type: string
+        description: |
+          Country code of origin airport.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: PL
+      flightOriginCityName?:
+        type: string
+        description: |
+          City name of origin airport.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: Warsaw
+      flightDestinationCountryCode?:
+        type: string
+        description: |
+          Country code of destination airport.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: GR
+      flightDestinationCityName?:
+        type: string
+        description: |
+          City name of destination airport.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: Zakynthos
+      hotelID?:
+        type: integer
+        description: |
+          Id of the hotel.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Hotel`, `Hotels`.
+      hotelCountry?:
+        type: string
+        description: |
+          Name of the country.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Hotel`, `Hotels`.
+        example: United States
+      hotelCity?:
+        type: string
+        description: |
+          Name of the city where the hotel resides.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Hotel`, `Hotels`.
+        example: Orlando
+      hotelName?:
+        type: string
+        description: |
+          Hotel name.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Hotel`, `Hotels`.
+      carOriginCountryCode?:
+        type: string
+        description: |
+          Country code of where the car was picked up.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Car`, `Cars`.
+        example: MX
+      carOriginCityName?:
+        type: string
+        description: |
+          Name of the city where the car was picked up.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Car`, `Cars`.
+        example: Cancún
+      carDestinationCountryCode?:
+        type: string
+        description: |
+          Country code of where the car was dropped off.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Car`, `Cars`.
+        example: MX
+      carDestinationCityName?:
+        type: string
+        description: |
+          Name of the city where the car was dropped off.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/{vertical}` is one of these values: `All`, `Car`, `Cars`.
+        example: Cancún
+    example:
+      date: 2023-05-01T00:00:00
+      clickId: _$UTttXbIaPw
+      clickStartDate: 2023-06-11T00:00:00
+      clickEndDate: 2023-06-18T00:00:00
+      bookingDate: null
+      bookingID: null
+      bookingStartDate: null
+      bookingEndDate: null
+      revenue": 0.0
+      commission: 0.0
+      localisedCurrencyCode: EUR
+      localisedBookingValue: 145.32
+      cashbackAmountUSD: 2.50
+      cashbackAmountLocalised: 2.25
+      cashbackType: PERCENTAGE
+      cashbackValue: 2.5
+      exchangeRate: 0.92
+      languageCode: PL
+      deviceCategory: 1
+      localeCode: kr
+      productChannelCode: Distribution
+      clientCountryCode: PL
+      label: sem/GwEFAA==..3fR.........
+      vertical:
+        name: Flight
+        code: Flight
+      integrationCode: example_integration_code
+      siteBrandCode: kayak
+      transactionType:
+        name: Click
+        typeCode: 1
+      transactionStatus:
+        name: Active
+        statusCode: 1
+      pid: whitelabel
+      cid:
+      lid: 3fa6FJrOzXh
+  TransactionsLeadsResponse:
+    properties:
+      date?:
+        type: date
+        example: 2023-06-28T00:00:00
+      clickId?:
+        type: string
+        description: Unique identifier of the lead.
+        example: $ZAfXBFzjr$rTL6kYOi3Oy
+      clickStartDate?:
+        type: date
+        description: |
+          Date of the lead.
+
+          Format: `yyyy-MM-dd`.
+        example: 2023-07-01T00:00:00
+      clickEndDate?:
+        type: date
+        description: |
+          Check out date of lead.
+
+          Format: `yyyy-MM-dd`.
+        example: 2023-07-03T00:00:00
+      revenue?:
+        type: double
+        description: Revenue used as basis for commission.
+        example: 1.21
+      commission?:
+        type: double
+        description: Commission from transaction.
+        example: 0.8
+      localisedCurrencyCode?:
+        type: string
+        description: |
+          The currency code configured for this affiliate through the AMI cashback configuration system.
+
+          This currency is used for all localized cashback calculations.
+        example: EUR
+      localisedBookingValue?:
+        type: double
+        description: |
+          The booking value converted from USD to the localized currency specified in `localisedCurrencyCode`.
+
+          Conversion is performed using the exchange rate applicable on the transaction date.
+        example: 145.32
+      cashbackAmountUSD?:
+        type: double
+        description: |
+          The cashback amount calculated in USD.
+
+          For percentage-based cashback, this is calculated as (`cashbackValue` / 100) × `bookingValue`.
+          For flat cashback, this represents the flat amount in USD equivalent.
+        example: 2.50
+      cashbackAmountLocalised?:
+        type: double
+        description: |
+          The cashback amount converted from USD to the localized currency specified in `localisedCurrencyCode`.
+
+          This value is derived by applying the exchange rate to `cashbackAmountUSD`.
+        example: 2.25
+      cashbackType?:
+        type: string
+        description: |
+          The type of cashback configuration applied to this transaction.
+
+          Valid values:
+          - `FLAT` - Fixed cashback amount per transaction
+          - `PERCENTAGE` - Percentage-based cashback calculated on booking value
+        example: PERCENTAGE
+      cashbackValue?:
+        type: double
+        description: |
+          The cashback value as configured in the cashback system.
+
+          For percentage-based cashback, this represents the percentage rate (e.g., 2.5 for 2.5%).
+          For flat cashback, this represents the fixed amount in the localized currency (e.g., 2.0 for 2 EUR).
+        example: 2.5
+      exchangeRate?:
+        type: double
+        description: |
+          The exchange rate from USD to the localized currency, applied based on the transaction date.
+
+          This rate is used to convert booking values and cashback amounts from USD to the localized currency.
+        example: 0.92
+      languageCode?:
+        type: string
+        description: 2-letter language code.
+        example: EN
+      deviceCategory?:
+        type: integer
+        description: The [Device category](#ReportingAPIDeviceCategory).
+        example: 1
+      localeCode?:
+        type: string
+        description: 2-letter locale code.
+        example: kr
+      productChannelCode?:
+        type: string
+        description: Product channel code of the transaction.
+        example: Distribution
+      clientCountryCode?:
+        type: string
+        description: 2-letter country code.
+        example: FR
+      label?:
+        type: string
+        description: Custom tracking parameter recorded by the transaction.
+      paymentMonth?:
+        type: date
+      vertical?:
+        type: Vertical
+        description: Object that represents the [Vertical](#ReportingAPIVertical) of the transaction.
+      integrationCode?:
+        type: string
+        description: Integration code that was used to generate the transaction.
+        example: kan-1234
+      siteBrandCode?:
+        type: string
+        description: Site that generated the transaction.
+        examples:
+          example1: Kayak
+          example2: HotelsCombined
+      transactionType?:
+        type: TransactionType
+        description: Type of transaction.
+      transactionStatus?:
+        type: TransactionStatus
+        description: Status of transaction.
+      eid?:
+        type: bool
+        description: |
+          Experiment ID
+
+          Can be used for anything where the KAYAK affiliate would like to pass a Boolean value (A/B testing, etc).
+
+          If not passed, it will be recorded as false.
+        example: 0
+      pid?:
+        type: string
+        description: |
+          Product ID
+
+          KAYAK description of affiliate product.
+        example: whitelabel
+      cid?:
+        type: string
+        description: |
+          Click ID
+
+          Granular tracking determined by the affiliate, generally represents each session or click to the
+          deeplinks in order to optimise marketing channels or product decisions.
+      lid?:
+        type: string
+        description: |
+          Location ID
+
+          Where on the affiliate site the product has been placed.
+        example: header
+      bookings?:
+        type: integer
+      originAirportCode?:
+        type: string
+        description: |
+          Origin airport code.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: WAW
+      originAirportName?:
+        type: string
+        description: |
+          Origin airport name.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: Frederic Chopin
+      destinationAirportCode?:
+        type: string
+        description: |
+          Destination airport code.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: ZTH
+      destinationAirportName?:
+        type: string
+        description: |
+          Destination airport name.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: Dionsios Salomos
+      flightOriginCountryCode?:
+        type: string
+        description: |
+          Country code of origin airport.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: PL
+      flightOriginCityName?:
+        type: string
+        description: |
+          City name of origin airport.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: Warsaw
+      flightDestinationCountryCode?:
+        type: string
+        description: |
+          Country code of destination airport.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: GR
+      flightDestinationCityName?:
+        type: string
+        description: |
+          City name of destination airport.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Flight`, `Flights`.
+        example: Zakynthos
+      hotelID?:
+        type: integer
+        description: |
+          Id of the hotel.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Hotel`, `Hotels`.
+      hotelCountry?:
+        type: string
+        description: |
+          Name of the country.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Hotel`, `Hotels`.
+        example: United States
+      hotelCity?:
+        type: string
+        description: |
+          Name of the city where the hotel resides.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Hotel`, `Hotels`.
+        example: Orlando
+      hotelName?:
+        type: string
+        description: |
+          Hotel name.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Hotel`, `Hotels`.
+      carOriginCountryCode?:
+        type: string
+        description: |
+          Country code of where the car was picked up.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Car`, `Cars`.
+        example: MX
+      carOriginCityName?:
+        type: string
+        description: |
+          Name of the city where the car was picked up.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Car`, `Cars`.
+        example: Cancún
+      carDestinationCountryCode?:
+        type: string
+        description: |
+          Country code of where the car was dropped off.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Car`, `Cars`.
+        example: MX
+      carDestinationCityName?:
+        type: string
+        description: |
+          Name of the city where the car was dropped off.
+
+          **NOTE**: This field will only be included if the `{vertical}` in `/transactions/leads/{vertical}` is one of these values: `All`, `Car`, `Cars`.
+        example: Cancún
+    example:
+      date: 2023-05-01T00:00:00
+      clickId: _$UTttXbIaPw
+      clickStartDate: 2023-06-11T00:00:00
+      clickEndDate: 2023-06-18T00:00:00
+      revenue": 0.0
+      commission: 0.0
+      localisedCurrencyCode: EUR
+      localisedBookingValue: 145.32
+      cashbackAmountUSD: 2.50
+      cashbackAmountLocalised: 2.25
+      cashbackType: PERCENTAGE
+      cashbackValue: 2.5
+      exchangeRate: 0.92
+      languageCode: PL
+      deviceCategory: 1
+      localeCode: kr
+      productChannelCode: Distribution
+      clientCountryCode: PL
+      label: campaign1
+      vertical:
+        name: Flight
+        code: Flight
+      integrationCode: example_integration_code
+      siteBrandCode: kayak
+      transactionType:
+        name: Click
+        typeCode: 1
+      transactionStatus:
+        name: Active
+        statusCode: 1
+      pid: whitelabel
+      cid:
+      lid: 3fa6FJrOzXh
+  AggregateOption:
+    type: string
+    description: |
+      Valid values:
+      - `Date` - Daily grouping
+      - `WeekStoS` - Date grouping by week, starting the week on Sunday. If more than one date grouping is applied, the most granular one will be given preference
+      - `Month` - Date grouping by month. If more than one grouping is applied, the most granular one is applied
+      - `CheckinBooking` - Add grouping by booking/sale check-in date
+      - `CheckoutBooking` - Add grouping by booking/sale check-out date
+      - `LanguageCode` - Add grouping by LanguageCode
+      - `Label` - Add grouping by Label
+      - `DeviceCategory` - Add grouping by [Device category](#ReportingAPIDeviceCategory)
+      - `HotelID` - Add grouping by HotelID (Kayak)
+      - `HotelCountry` - Add grouping by hotel country
+      - `HotelCity` - Add grouping by hotel city
+      - `HotelName` - Add grouping by hotel name
+      - `VerticalCode` - Add grouping by [Vertical Codes](#ReportingAPIVerticalCode)
+      - `IntegrationCode` - Add grouping by integration codes
+  DeviceCategory:
+    type: integer
+    description: |
+      Valid values:
+      - `0` - Desktop
+      - `1` - Mobile
+      - `2` - Tablet
+      - `3` - Bot
+      - `11` - Unknown
+  Vertical:
+    type: object
+    properties:
+      name:
+        type: string
+      code:
+        type: VerticalCode
+  VerticalCode:
+    type: string
+    description: |
+      Valid values:
+      - `Activity`
+      - `Car`
+      - `Cruise`
+      - `Deal`
+      - `Essential`
+      - `Flight`
+      - `Guide`
+      - `Hotel`
+      - `ICar` - New version of car vertical. Can be used in combination with Car to return all transactions for the car vertical
+      - `N/A` - Not available
+      - `N/P` - Not applicable
+      - `N/U` - Missing
+      - `Package`
+      - `Restaurant`
+      - `Train`
+      - `Transfer`
+      - `Vacation`
+      - `Vacation Rental`
+  CommaSeparatedValueList:
+    type: string
+    description: Comma-delimited list of values.
+    examples:
+      example1: 1,2
+      example2: EN,DE
+      example3: label1,label2
+  TransactionType:
+    type: object
+    properties:
+      name?:
+        type: string
+      typeCode?:
+        type: integer
+  TransactionStatus:
+    type: object
+    properties:
+      name?:
+        type: string
+      statusCode?:
+        type: integer
+    description: |
+      Transaction Types, Statuses and Codes (Format: Value | Code | Status Value | Status Code)
+
+      - Lead | 1 | Active | 1
+      - Booking | 10 | Active | 1
+      - Booking | 10 | Cancelled | 11
+      - Unknown | 0 | Unknown | 0
+
+traits:
+  hasStandardErrors:
+    responses:
+      400:
+        description: The query is not valid (e.g. start date after end date).
+        body:
+          application/json:
+            type: string
+      401:
+        description: The API key is invalid/not supplied or the IP is not valid for this affiliate.
+        body:
+          application/json:
+            type: string
+  transactionQueryParameters:
+    queryParameters:
+      apiKey:
+        type: string
+        description: API key assigned to the affiliate.
+      startDate:
+        type: date-only
+        description: |
+          The date from which the report will run.
+
+          Format: `yyyy-MM-dd`.
+      endDate:
+        type: date-only
+        description: |
+          The date until which the report will run (inclusive).
+
+          Format: `yyyy-MM-dd`.
+      page?:
+        type: integer
+        description: The page number in the results.
+      pageSize?:
+        type: integer
+        description: How many results per page should be returned (required if paging is intended).
+      labels?:
+        type: CommaSeparatedValueList
+        description: Label used when the lead/booking was generated.
+        example: label1,label2
+      clientCountries?:
+        type: CommaSeparatedValueList
+        description: List of comma separated 2 char country codes.
+        example: AU,FR,US
+      languages?:
+        type: CommaSeparatedValueList
+        description: List of comma separated 2 char language codes.
+        example: EN,FR,DE
+      hotelCountries?:
+        type: CommaSeparatedValueList
+        description: List of comma separated 2 char country codes.
+        example: AU,FR,US
+      providerCodes?:
+        type: CommaSeparatedValueList
+        description: List of comma separated provider codes.
+        example: BKS,IAN
+      deviceCategories?:
+        type: CommaSeparatedValueList
+        description: List of comma separated [Device category](#ReportingAPIDeviceCategory).
+        example: 0,1
+      commission?:
+        type: CommaSeparatedValueList
+        description: |
+          Range value (using doubles) separated by colon (:) or just a single starting value.
+
+          Will return results between the two values (inclusive). One value can be supplied to mimic greater than functionality.
+        examples:
+          example1: 0.1:10
+          example2: 0.01
+      verticals?:
+        type: CommaSeparatedValueList
+        description: List of comma separated [Vertical Codes](#ReportingAPIVerticalCode).
+        example: Hotel,Flight
+      integrationCodes?:
+        type: CommaSeparatedValueList
+        description: List of comma separated integration codes.
+        example: kan_123,kan_2345_2345

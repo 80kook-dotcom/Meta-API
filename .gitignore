@@ -1,0 +1,29 @@
+# ============================================================
+# Meta-API 중계 서버 — 비밀/대용량 제외
+# ⚠ 이 저장소는 PUBLIC 이다. API 키는 절대 커밋하지 않는다.
+#    키는 .env(로컬) 또는 운영 서버의 환경변수/시크릿으로만 보관한다.
+# ============================================================
+
+# ── 환경/비밀 ──────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*secret*
+
+# ── KAYAK 키 포함 문서 — 절대 커밋 금지 ─────
+# (docs 로 복사해도 git 에는 올라가지 않게 이중 차단)
+docs/_reference/KAYAK_접속정보_및_QA.md
+**/KAYAK_접속정보_및_QA.md
+
+# ── 대용량 실응답 샘플(재생성 가능) ─────────
+docs/_reference/_live_search_sample.json
+**/_live_search_sample.json
+
+# ── Node ───────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+dist/
+*.log
+.DS_Store

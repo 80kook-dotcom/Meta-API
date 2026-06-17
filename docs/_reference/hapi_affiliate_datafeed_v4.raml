@@ -1,0 +1,714 @@
+#%RAML 1.0
+title: Static Data Feeds API
+version: v4
+mediaType: application/json
+baseUri: /api/4.0
+description: |
+  KAYAK static data feeds API.
+
+documentation:
+  - title: Retrieve static data feeds for hotels and places
+    content: |
+      ## Overview
+      KAYAK static data feeds can be used to complement a hotel search API integration and to build up a database
+      of static data points with regards to hotels and places. Dynamic information such as rates and availability should be
+      obtained from the search API.
+
+      ## General usage
+      Hotel and place feeds are in the NDJSON (new line-delimited JSON) also known as JSONL format. With this format, each row
+      of the file represents a complete JSON record. Responses will have the content-type `application/x-ndjson`. This
+      format makes it easy to work with standard line-oriented UNIX tools like grep, head, wc, etc. Additional reading:
+      [https://en.wikipedia.org/wiki/JSON_streaming#NDJSON](https://en.wikipedia.org/wiki/JSON_streaming#NDJSON)
+
+      ## Pagination
+      `pageSize` - The number of items (i.e. hotels or places respectively) to be returned per page
+
+      `lastId` - The ID of the last hotel or place returned on the previous page
+
+      To request the first page use `lastId=0` in your request. The last page of the feed will be reached when the number of results
+      is smaller than the `pageSize` requested.
+
+      We recommend a `pageSize` of 10,000 or less for hotels and 100,000 or less for places. Pages sizes smaller
+      than 1,000 should only be used for testing purposes. Automated processes might be subject to rate-limiting if
+      the page size is too small.
+  - title: API Deprecation Notices
+    content: |
+      ## Deprecated Fields
+
+      The following fields are deprecated and scheduled for removal:
+
+      - **`popularity`** in `HotelFeedResponse`: Deprecated as of 2025-08-06, will be removed on 2026-02-10. This field is no longer maintained and may contain outdated information.
+
+
+/hotelfeed:
+  displayName: Hotel feed
+  description: Get static hotel feed data
+  is: [ hasStandardErrors ]
+  get:
+    queryParameters:
+      apiKey:
+        type: string
+        description: The API key assigned to the affiliate.
+      lastId:
+        type: number
+        description: The value of the last hotel ID that was received. Must be equal or greater than zero.
+      pageSize:
+        type: number
+        description: The page size for the feed.
+        minimum: 1
+        maximum: 499999
+      languageCode?:
+        type: LanguageCode
+        description: The language code for the feed. Must be a valid language code.
+        default: "en"
+      countryCode?:
+        type: CountryCode
+        description: Returns hotels in a specific country. If not provided, the feed will not be filtered by country.
+      lastUpdated?:
+        type: datetime-only
+        description: Return properties that have been updated since the given date. Must be a valid ISO Date in the format yyyy-MM-dd.
+      propertyTypeIds?:
+        type: number[]
+        description: Return properties that have the given property type IDs.
+    responses:
+      200:
+        body:
+          application/x-ndjson:
+            type: HotelFeedResponse
+
+
+/placefeed:
+  displayName: Place feed
+  description: Get static place feed data
+  is: [ hasStandardErrors ]
+  get:
+    queryParameters:
+      apiKey:
+        type: string
+        description: The API key assigned to the affiliate.
+      lastId:
+        type: number
+        description: The value of the last place ID that was received. Must be equal or greater than zero.
+      pageSize:
+        type: number
+        description: The page size for the feed.
+        minimum: 1
+        maximum: 499999
+      languageCode?:
+        type: LanguageCode
+        description: The language code for the feed. Must be a valid language code.
+        default: "en"
+      countryCode?:
+        type: CountryCode
+        description: Returns hotels in a specific country. If not provided, the feed will not be filtered by country.
+    responses:
+      200:
+        body:
+          application/x-ndjson:
+            type: PlaceFeedResponse
+
+
+/constants-mapping:
+  displayName: Constants mapping
+  description: Get constants mapping data to be used in conjunction with `/hotelfeed` or `/placefeed`.
+  is: [ hasStandardErrors ]
+  get:
+    queryParameters:
+      apiKey:
+        type: string
+        description: The API key assigned to the affiliate.
+      types:
+        type: ConstantsMappingType
+        description: Comma-separated list of types to include in the response.
+      languageCode?:
+        type: LanguageCode
+        description: The language code for the feed. Must be a valid language code.
+        default: "en"
+    responses:
+      200:
+        body:
+          application/x-ndjson:
+            type: ConstantsMappingFeedResponse
+
+
+types:
+  HotelFeedResponse:
+    properties:
+      hotelId:
+        type: number
+        description: Unique identifier for the hotel.
+      hotelName:
+        type: string
+        description: Name of the hotel.
+      propertyTypeId:
+        type: number
+        description: Type of the property. To be used in conjunction with the constants mapping endpoint.
+      location:
+        type: HotelLocationResponse
+        description: Location object with fields pertaining to the location of the hotel.
+      starRating?:
+        type: number
+        description: Star rating of the hotel. 5-star scale. Additionally, this will always be 0 for vacation rentals.
+      minRate?:
+        type: number
+        format: double
+        description: Minimum rate of the hotel in USD.
+      popularity?:
+        type: number
+        description: |
+          **DEPRECATED**: Will be removed on 2026-02-10. No longer updated.
+          Popularity score of the hotel. Lower number means more popular.
+      overallRating:
+        type: number
+        format: double
+        description: Overall customer rating of the hotel. 10-point scale.
+      numberOfReviews:
+        type: number
+        description: Number of reviews for the hotel.
+      themes?:
+        type: number[]
+        description: List of theme identifiers. To be used in conjunction with themes in the `/constants-mapping` result.
+      facilities?:
+        type: HotelFeatureTagGroupResponse[]
+        description: List of facilities grouped by tag.
+      checkIn?:
+        type: number
+        description: Check-in time for the hotel in `hhmm` format.
+      checkOut?:
+        type: number
+        description: Check-out time for the hotel in `hhmm` format.
+      chainId?:
+        type: number
+        description: Unique identifier for the hotel chain to be used in conjunction with chains in `/constants-mapping` result.
+      iataCode?:
+        type: AirportCode
+        description: Nearby IATA code of the hotel where applicable.
+      dateCreated?:
+        type: date-only
+        description: ISO date yyyy-MM-dd of the date the hotel was created, if it exists.
+      lastUpdated:
+        type: datetime
+        description: Last updated timestamp of the hotel (in UTC).
+      images?:
+        type: HotelImageResponse[]
+        description: List of images for the hotel sorted by an internal ranking system. The first image can be used as the main image for any given property.
+    example:
+      hotelId: 1
+      hotelName: "Hotel Torbräu"
+      propertyTypeId: 0
+      location:
+        address: "Tal 41"
+        postalCode: "80331"
+        coordinates:
+          latitude: 48.135433
+          longitude: 11.581553
+        city:
+          placeId: 34192
+          name: "Munich"
+          placeTypeId: 5
+        state:
+          placeId: 36159
+          name: "Bavaria"
+        country:
+          placeId: 35343
+          name: "Germany"
+          countryCode: "DE"
+          currencyCode: "EUR"
+      starRating: 4
+      minRate: 163.05
+      popularity: 17857
+      overallRating: 8.9
+      numberOfReviews: 3236
+      themes: [1, 2]
+      facilities:
+        - tag: "media_entertain"
+          featureIds: [85,537,645,675,747]
+      checkIn: 1500
+      checkOut: 1100
+      chainId: 80
+      iataCode: "MUC"
+      dateCreated: "2008-01-15"
+      lastUpdated: "2024-02-07T17:38:20Z"
+      images:
+        - imageId: 2066455622
+          source: "Expedia"
+          url: "https://content.r9cdn.net/himg/da/83/ae/expediav2-1-3c76a2-996459.jpg"
+          width: 1000
+          height: 674
+          tag: 17
+
+
+  HotelLocationResponse:
+    type: object
+    description: Location object with fields pertaining to the location of the hotel.
+    properties:
+      address?:
+        type: string
+        description: Address of the hotel.
+      postalCode?:
+        type: string
+        description: Postal of the hotel.
+      coordinates:
+        type: HotelCoordinatesResponse
+        description: Coordinates of the hotel.
+      city:
+        type: HotelCityResponse
+        description: City of the hotel.
+      state?:
+        type: HotelStateResponse
+        description: State of the hotel if applicable.
+      country:
+        type: HotelCountryResponse
+        description: Country of the hotel.
+    example:
+      address: "Tal 41"
+      postalCode: "80331"
+      coordinates:
+        latitude: 48.135433
+        longitude: 11.581553
+      city:
+        placeId: 34192
+        name: "Munich"
+        placeTypeId: 5
+      state:
+        placeId: 36159
+        name: "Bavaria"
+      country:
+        placeId: 35343
+        name: "Germany"
+        countryCode: "DE"
+        currencyCode: "EUR"
+
+
+  HotelCoordinatesResponse:
+    type: object
+    description: Coordinates object.
+    properties:
+      latitude:
+        type: number
+        format: double
+        description: Latitude coordinate of the hotel.
+      longitude:
+        type: number
+        format: double
+        description: Longitude coordinate of the hotel.
+    example:
+      latitude: 48.135433
+      longitude: 11.581553
+
+
+  HotelCityResponse:
+    type: object
+    description: City object.
+    properties:
+      placeId:
+        type: number
+        description: Unique identifier for the place.
+      name:
+        type: string
+        description: Name of the place.
+      placeTypeId:
+        type: number
+        description: Unique identifier for the type of place. To be used in conjunction with the `placeType` from `/constants-mapping` result.
+    example:
+      placeId: 34192
+      name: "Munich"
+      placeTypeId: 5
+
+
+  HotelStateResponse:
+    type: object
+    description: State object.
+    properties:
+      placeId:
+        type: number
+        description: Unique identifier for the place.
+      name:
+        type: string
+        description: Name of the place.
+    example:
+      placeId: 36159
+      name: "Bavaria"
+
+
+  HotelCountryResponse:
+    type: object
+    description: Country object.
+    properties:
+      placeId:
+        type: number
+        description: The unique identifier for the place.
+      name:
+        type: string
+        description: The name of the place.
+      countryCode:
+        type: CountryCode
+        description: Country code of the country.
+      currencyCode?:
+        type: CurrencyCode
+        description: Currency of the country.
+    example:
+      placeId: 35343
+      name: "Germany"
+      countryCode: "DE"
+      currencyCode: "EUR"
+
+
+  HotelFeatureTagGroupResponse:
+    type: object
+    description: Facility grouped by tag.
+    properties:
+      tag:
+        type: string
+        description: Unique identifier for the image. To be used in conjunction with the tags in the facility `/constants-mapping` result.
+      featureIds:
+        type: number[]
+        description: List of feature IDs in the group, sorted by internal ranking of their usefulness. To be used in conjunction with the features in the `/constants mapping` result.
+    example:
+      tag: "media_entertain"
+      featureIds: [85,537,645,675,747]
+
+
+  HotelImageResponse:
+    type: object
+    description: Hotel image object.
+    properties:
+      imageId:
+        type: number
+        description: Unique identifier for the image.
+      source:
+        type: string
+        description: Source of the image.
+      url:
+        type: string
+        description: URL of the image.
+      width:
+        type: number
+        description: Width of the image in pixels.
+      height:
+        type: number
+        description: Height of the image in pixels.
+      tag?:
+        type: number
+        description: Tag identifier for the image. To be used in conjunction with the `imageTag` in the `/constants-mapping` result.
+    example:
+      imageId: 2066455622
+      source: "Expedia"
+      url: "https://content.r9cdn.net/himg/da/83/ae/expediav2-1-3c76a2-996459.jpg"
+      width: 1000
+      height: 674
+      tag: 17
+
+
+  PlaceFeedResponse:
+    type: object
+    description: Hotel image object.
+    properties:
+      placeId:
+        type: number
+        description: Unique identifier for the place.
+      placeName:
+        type: string
+        description: The name of the place.
+      cityPlaceId?:
+        type: number
+        description: ID of the city place if there is one. If this place is a city, it will be the same as `placeId`.
+      countryCode?:
+        type: CountryCode
+        description: The country code.
+      countryName?:
+        type: string
+        description: The country name.
+      latitude:
+        type: number
+        format: double
+        description: The latitude of the place.
+      longitude:
+        type: number
+        format: double
+        description: The longitude of the place.
+      hierarchy:
+        type: number[]
+        description: The hierarchy of the place. Read first to last as “smallest” to “largest”. Not nullable, but can be empty for top-level places (continents).
+      placeTypeId:
+        type: number
+        description: Unique identifier for the type of place. To be used in conjunction with the `placeType` from `/constants-mapping` result.
+      numHotels?:
+        type: number
+        description: The number of hotels in the place. Null for continents as we do not have reasonable estimates for them.
+      iataCode?:
+        type: AirportCode
+        description: The IATA code of the place where applicable.
+    example:
+      placeId: 58075
+      placeName: "Boston"
+      cityPlaceId: 58075
+      countryCode: US
+      countryName: United States
+      latitude: 42.36090349
+      longitude: -71.05889024
+      hierarchy: [63136, 63129, 66130]
+      placeTypeId: 5
+      numHotels: 2105
+      iataCode: BOS
+
+
+  ConstantsMappingFeedResponse:
+    type: object
+    description: Constants mapping feed.
+    properties:
+      facility?:
+        type: ConstantsMappingFacilityResponse
+        description: Features and tags of hotels.
+      theme?:
+        type: ConstantsMappingThemeResponse[]
+        description: List of all hotel themes.
+      placeType?:
+        type: ConstantsMappingPlaceTypeResponse[]
+        description: List of all place types.
+      propertyType?:
+        type: ConstantsMappingPropertyResponse[]
+        description: List of all property types.
+      chain?:
+        type: ConstantsMappingChainResponse[]
+        description: List of all hotel chains.
+      imageTag?:
+        type: ConstantsMappingImageTagResponse[]
+        description: List of all image tags.
+    example:
+        facility:
+            features:
+            - id: 2
+              name: "Computer use available"
+              type: "room"
+            - id: 3
+              name: "Conference facilities"
+              type: "hotel"
+            tags:
+            - id: "access_suit"
+              name: "Accessibility and suitability"
+            - id: "bathroom"
+              name: "Bathroom"
+        theme:
+          - id: 1
+            name: "Adventure"
+        placeType:
+          - id: 2
+            name: "Airport"
+        propertyType:
+          - id: 0
+            name: "Hotel"
+        chain:
+          - id: 2
+            name: "Radisson Hospitality Worldwide"
+            parentId: 366
+        imageTag:
+          - id: 51
+            name: "Decor"
+
+
+  ConstantsMappingType:
+    type: string
+    enum: [ "facility", "theme", "placeType", "property", "chain", "imageTag" ]
+    description: |
+      Available types
+      * `facility` - Returns features and tags of hotels. To be used with the hotel feed's facilities field.
+      * `theme` - Returns a list of all hotel themes (e.g., Eco-friendly, Romantic, Beach, etc.) in the specified language and their corresponding IDs.
+      * `placeType` - Returns a list of all place types (e.g., city, airport, island, etc.) in the specified language and their corresponding IDs.
+      * `property` - Returns a list of all property types (e.g., hotel, resort, guest house, etc.) in the specified language and their corresponding IDs.
+      * `chain` - Returns a list of all hotel chains (e.g., Novotel, Holiday Inn Hotels & Resorts, etc.) in the specified language and their corresponding IDs.
+      * `imageTag` - Returns imageTag which is the type of the image. To be used with HotelImageResponse[] tag field.
+
+
+  ConstantsMappingFacilityResponse:
+    type: object
+    description: Features and tags of hotels.
+    properties:
+      features:
+        type: ConstantsMappingFacilityFeatureResponse[]
+        description: Facility features of hotels.
+      tags:
+        type: ConstantsMappingFacilityTagResponse[]
+        description: Facility tags of hotels.
+
+
+  ConstantsMappingFacilityFeatureResponse:
+    type: object
+    description: Facility feature object.
+    properties:
+      id:
+        type: number
+        description: Id of the feature.
+      name:
+        type: string
+        description: Name of the feature.
+      type:
+        type: string
+        description: Type of the feature - hotel, room or activity amenity.
+        enum:
+          - hotel
+          - room
+          - activity
+    example:
+      id: 2
+      name: "Computer use available"
+      type: "hotel"
+
+
+  ConstantsMappingFacilityTagResponse:
+    type: object
+    description: Facility tag object.
+    properties:
+      id:
+        type: string
+        description: Id of the tag.
+      name:
+        type: string
+        description: Name of the tag.
+    example:
+      id: "access_suit"
+      name: "Accessibility and suitability"
+
+
+  ConstantsMappingThemeResponse:
+    type: object
+    description: Theme object
+    properties:
+      id:
+        type: number
+        description: Id of the theme.
+      name:
+        type: string
+        description: Name of the theme.
+    example:
+      id: 1
+      name: "Adventure"
+
+
+  ConstantsMappingPlaceTypeResponse:
+    type: object
+    description: Place type object.
+    properties:
+      id:
+        type: number
+        description: Id of the place type.
+      name:
+        type: string
+        description: Name of the place type.
+    example:
+      id: 2
+      name: "Airport"
+
+
+  ConstantsMappingPropertyResponse:
+    type: object
+    description: Property type object.
+    properties:
+      id:
+        type: number
+        description: Id of the property type.
+      name:
+        type: string
+        description: Name of the property type.
+    example:
+      id: 0
+      name: "Hotel"
+
+
+  ConstantsMappingChainResponse:
+    type: object
+    description: Chain type object.
+    properties:
+      id:
+        type: number
+        description: Id of the chain.
+      name:
+        type: string
+        description: Name of the chain.
+      parentId?:
+        type: number
+        description: Parent chain id where applicable.
+    example:
+      id: 2
+      name: "Radisson Hospitality Worldwide"
+      parentId: 366
+
+
+  ConstantsMappingImageTagResponse:
+    type: object
+    description: Image tag object.
+    properties:
+      id:
+        type: number
+        description: Id of the image tag.
+      name:
+        type: string
+        description: Name of the image tag.
+    example:
+      id: 51
+      name: "Decor"
+
+
+  LanguageCode:
+    type: string
+    pattern: "^[a-z]{2}_[A-Z]{2}$"
+    description: |
+      ISO 639 code identifier for language.
+      Note: Chinese requires a regional variant (e.g., zh_TW, zh_HK, zh_SG).
+    examples:
+      Chinese (Taiwan): zh_TW
+      German: de
+
+
+  AirportCode:
+    description: An IATA (International Air Transport Association) code that identifies an airport (3 characters code).
+    type: string
+    pattern: "^.{3}$"
+    examples:
+      CPHAirport: CPH
+
+
+  CurrencyCode:
+    type: string
+    description: |
+      ISO 4217 code identifier for currency. Currency codes are composed of a
+      country's two-character Internet country code plus a third character
+      denoting the currency unit.
+    pattern: "[A-Z]{3}"
+    examples:
+      Dollar: USD
+
+
+  CountryCode:
+    type: string
+    description: |
+      ISO 3166-1 alpha-2 code identifier for country. Country codes are composed of
+      a country's two-character Internet country code.
+    pattern: "[A-Z]{2}"
+    examples:
+      UnitedStates: US
+
+
+traits:
+  hasStandardErrors:
+    responses:
+      400:
+        description: Validation error in request.
+        body:
+          application/json:
+            type: string
+      403:
+        description: Request is not allowed.
+        body:
+          application/json:
+            type: string
+      404:
+        description: Resource was not found.
+        body:
+          application/json:
+            type: string
+      429:
+        description: Rate limit exceeded.
+        body:
+          application/json:
+            type: string

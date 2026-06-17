@@ -1,0 +1,370 @@
+#%RAML 1.0
+title: Autocomplete API
+version: v1
+mediaType: application/json
+baseUri: /api/affiliate/autocomplete/v1
+description: |
+  The Autocomplete API returns a list of places that match a specified search term.
+
+documentation:
+  - title: Autocomplete API
+    content: |
+      ## Overview
+      The Autocomplete API returns a list of places that match a specified search term.
+      It can be used to power other affiliate APIs that require place selection (ex. Price Insights API)
+
+
+/flights:
+  get:
+    displayName: Flights autocomplete
+    description: Returns places of countries, regions, cities and airports
+    queryParameters:
+      apiKey: string
+      searchTerm:
+        description: The search term used to find matching places.
+        type: string
+    responses:
+      200:
+        description: Retrieve a list of results. Maximum of 6 items are returned.
+        body:
+          application/json:
+            type: FlightsAutocompleteResponse
+
+/cars:
+  get:
+    displayName: Cars autocomplete
+    description: Returns places of airports, rail stations, cities
+    queryParameters:
+      apiKey: string
+      searchTerm:
+        description: The search term used to find matching places.
+        type: string
+    responses:
+      200:
+        description: Retrieve a list of results. Maximum of 6 items are returned.
+        body:
+          application/json:
+            type: CarsAutocompleteResponse
+
+/hotels:
+  get:
+    displayName: Hotels autocomplete
+    description: Returns hotels, regions, cities, airports and countries
+    queryParameters:
+      apiKey: string
+      searchTerm:
+        description: The search term used to find matching places.
+        type: string
+    responses:
+      200:
+        description: Retrieve a list of results. Maximum of 6 items are returned.
+        body:
+          application/json:
+            type: HotelsAutocompleteResponse
+
+
+types:
+  FlightsAutocompleteResponse:
+    type: object
+    properties:
+      results:
+        type: FlightsAutocompleteRecordResponse[]
+        description: Flights autocomplete results
+    example:
+      results:
+        - placeId: 175485
+          primaryPlaceType: "city"
+          displayPlaceType:
+            type: "city"
+            displayName: "City"
+          name: "John F Kennedy Intl"
+          fullName: "John F Kennedy Intl, New York, United States, (JFK)"
+          countryName: "United States"
+          regionName: "New York"
+          cityName: "New York"
+          iataCode: "JFK"
+          isMetro: false
+
+  FlightsAutocompleteRecordResponse:
+    type: object
+    properties:
+      placeId:
+        type: number
+        description: The unique identifier of a place that could be used in other KAYAK APIs
+      primaryPlaceType:
+        type: PrimaryPlaceType
+        description: Primary place type code for the place
+      displayPlaceType:
+        type: DisplayPlaceType
+        description: Display place type code for the place that is more granular than primary place type and could be used for display purposes
+      name:
+        type: string
+        description: Localised name of the place (e.g., airport name, city name)
+      fullName:
+        type: string
+        description: Localised full name that might include city, region, country and airport name in the result
+      countryName?:
+        type: string
+        description: Localised country name of the place
+      regionName?:
+        type: string
+        description: Localised region name of the place
+      cityName?:
+        type: string
+        description: Localised city name of the place
+      iataCode?:
+        type: string
+        description: IATA code for the airport or metro area
+      isMetro?:
+        type: boolean
+        description: |
+          Whether the place is a metro area, which includes multiple airports and is treated as a city (placeType=city and placeId is a city object).
+          For example SEA metro code includes: SEA, BFI, and LKE airports.
+    example:
+      placeId: 175485
+      primaryPlaceType: "city"
+      displayPlaceType:
+        type: "city"
+        displayName: "City"
+      name: "John F Kennedy Intl"
+      fullName: "John F Kennedy Intl, New York, United States, (JFK)"
+      countryName: "United States"
+      regionName: "New York"
+      cityName: "New York"
+      iataCode: "JFK"
+      isMetro: false
+
+  CarsAutocompleteResponse:
+    type: object
+    properties:
+      results:
+        type: CarsAutocompleteRecordResponse[]
+        description: Cars autocomplete results
+    example:
+      results:
+        - placeId: 59560
+          primaryPlaceType: "city"
+          displayPlaceType:
+            type: "city"
+            displayName: "City"
+          fullName: "New York, United States"
+          countryName: "United States"
+          countryCode: "US"
+          regionName: "New York"
+          cityName: "New York"
+          cityId: 15830
+
+  CarsAutocompleteRecordResponse:
+    type: object
+    properties:
+      placeId:
+        type: number
+        description: The unique identifier of a place that could be used in other KAYAK APIs
+      primaryPlaceType:
+        type: PrimaryPlaceType
+        description: Primary place type code for the place
+      displayPlaceType:
+        type: DisplayPlaceType
+        description: Display place type code for the place that is more granular than primary place type and could be used for display purposes
+      fullName:
+        type: string
+        description: Localised full name that might include city, region, country and airport name in the result
+      countryName?:
+        type: string
+        description: Localised country name of the place
+      countryCode?:
+        type: string
+        description: ISO 3166-1 alpha-2 country code
+      regionName?:
+        type: string
+        description: Localised region name of the place
+      cityName?:
+        type: string
+        description: Localised city name of the place
+      cityId?:
+        type: number
+        description: The unique identifier of a city that could be used in other KAYAK APIs
+      iataCode?:
+        type: string
+        description: IATA code for the airport
+    example:
+      placeId: 59560
+      primaryPlaceType: "city"
+      displayPlaceType:
+        type: "city"
+        displayName: "City"
+      fullName: "New York, United States"
+      countryName: "United States"
+      countryCode: "US"
+      regionName: "New York"
+      cityName: "New York"
+      cityId: 15830
+
+  HotelsAutocompleteResponse:
+    type: object
+    properties:
+      results:
+        type: HotelsAutocompleteRecordResponse[]
+        description: Hotels autocomplete results
+    example:
+      results:
+        - placeId: 59560
+          primaryPlaceType: "city"
+          displayPlaceType:
+            type: "city"
+            displayName: "City"
+          name: "Las Vegas"
+          fullName: "Las Vegas, Nevada"
+          location:
+            latitude: 36.090240
+            longitude: -115.172460
+          places:
+            - "Nevada"
+          entityKey: "kplace:59560"
+          countryName: "United States"
+          countryCode: "US"
+          regionName: "Nevada"
+          cityName: "Las Vegas"
+          cityId: 15830
+        - placeId: 61746
+          primaryPlaceType: "hotel"
+          displayPlaceType:
+            type: "hotel"
+            displayName: "Hotel"
+          name: "Four Seasons Hotel Las Vegas"
+          fullName: "Four Seasons Hotel Las Vegas, Las Vegas"
+          location:
+            latitude: 36.090240
+            longitude: -115.172460
+          entityKey: "kplace:61746"
+          places:
+            - "Las Vegas"
+          hotelName: "Four Seasons Hotel Las Vegas"
+          countryName: "United States"
+          countryCode: "US"
+          regionName: "Nevada"
+          cityName: "Las Vegas"
+          cityId: 15830
+          hotelId: 12345
+
+  HotelsAutocompleteRecordResponse:
+    type: object
+    properties:
+      placeId:
+        type: number
+        description: The unique identifier of a place that could be used in other KAYAK APIs
+      primaryPlaceType:
+        type: PrimaryPlaceType
+        description: Primary place type code for the place
+      displayPlaceType:
+        type: DisplayPlaceType
+        description: Display place type code for the place that is more granular than primary place type and could be used for display purposes
+      name:
+        type: string
+        description: Localised name of the place (e.g., hotel name, airport name, city name)
+      fullName:
+        type: string
+        description: Localised full name created by concatenating the `name` and `places` fields, separated by a comma.
+      location:
+        type: Coordinates
+        description: The latitude and longitude of the place
+      places:
+        type: string[]
+        description: Places hierarchy for the result (e.g., city, region, country)
+      entityKey:
+        type: string
+        description: Entity key that can be used for calling the Hotel Search API
+      hotelName?:
+        type: string
+        description: Localised hotel display name. Only present for hotel records
+      countryName?:
+        type: string
+        description: Localised country name of the place
+      countryCode?:
+        type: string
+        description: ISO 3166-1 alpha-2 country code
+      regionName?:
+        type: string
+        description: Localised region name of the place
+      cityName?:
+        type: string
+        description: Localised city name of the place
+      cityId?:
+        type: number
+        description: The unique identifier of a city that could be used in other KAYAK APIs
+      hotelId?:
+        type: number
+        description: The unique identifier of a hotel that could be used in other KAYAK APIs
+      iataCode?:
+        type: string
+        description: IATA code for the airport
+    example:
+      placeId: 59560
+      primaryPlaceType: "hotel"
+      displayPlaceType:
+        type: "hotel"
+        displayName: "Hotel"
+      name: "Four Seasons Hotel Las Vegas"
+      fullName: "Four Seasons Hotel Las Vegas, Las Vegas"
+      location:
+        latitude: 36.090240
+        longitude: -115.172460
+      places:
+        - "Las Vegas"
+      entityKey: "khotel:59560"
+      hotelName: "Four Seasons Hotel Las Vegas"
+      countryName: "United States"
+      countryCode: "US"
+      regionName: "Nevada"
+      cityName: "Las Vegas"
+      cityId: 15830
+      hotelId: 12345
+
+  PrimaryPlaceType:
+    type: string
+    description: Primary place type
+    enum: [ "airport", "city", "country", "hotel", "trainstation", "region", "touristregion", "neighborhood", "landmark", "nationalpark", "island" ]
+
+  DisplayPlaceType:
+    properties:
+      type:
+        type: string
+        description: Display place type
+      displayName:
+        type: string
+        description: Localised display type name
+
+  Coordinates:
+    type: object
+    properties:
+      latitude:
+        type: number
+        description: Latitude of the place
+      longitude:
+        type: number
+        description: Longitude of the place
+
+
+traits:
+  hasStandardErrors:
+    responses:
+      400:
+        description: Validation error in request
+        body:
+          application/json:
+            type: string
+      401:
+        description: Missing or incorrect API key
+        body:
+          application/json:
+            type: string
+      403:
+        description: Request is not allowed
+        body:
+          application/json:
+            type: string
+      404:
+        description: Resource was not found
+        body:
+          application/json:
+            type: string
