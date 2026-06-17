@@ -10,7 +10,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test:connect": "node scripts/connection-test.mjs"
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:connect": "node scripts/connection-test.mjs",
+    "test:route": "node scripts/route-test.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

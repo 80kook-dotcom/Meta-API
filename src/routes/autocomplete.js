@@ -1,19 +1,23 @@
 import { Router } from 'express'
+import { autocomplete } from '../kayak/endpoints.js'
+import { adaptAutocomplete } from '../adapters/autocomplete.js'
 
 const router = Router()
 
 /**
- * GET /api/autocomplete?q=  →  앱 AutocompleteItem[] (최대 6, city→region→hotel 정렬)
- * 매핑(S2): GET {KAYAK_HOST}/api/affiliate/autocomplete/v1/hotels?apiKey=&searchTerm={q}
- *           헤더 불필요. primaryPlaceType enum 축약 매핑 필요.
+ * GET /api/autocomplete?q=  →  앱 AutocompleteItem[] (city→region→hotel 정렬, 최대 6)
+ * KAYAK: GET {HOST}/api/affiliate/autocomplete/v1/hotels?apiKey=&searchTerm={q} (헤더 불필요)
+ * q 빈 값이면 빈 배열(앱 MSW 와 동일 동작).
  */
-router.get('/autocomplete', (_req, res) => {
-  res.status(501).json({
-    error: 'NOT_IMPLEMENTED',
-    phase: 'S0',
-    note: 'KAYAK Autocomplete 연동은 S2 에서 구현됩니다.',
-    willMapTo: 'GET {KAYAK_HOST}/api/affiliate/autocomplete/v1/hotels',
-  })
+router.get('/autocomplete', async (req, res, next) => {
+  try {
+    const q = String(req.query.q ?? '').trim()
+    if (!q) return res.json([])
+    const raw = await autocomplete({ q })
+    res.json(adaptAutocomplete(raw))
+  } catch (e) {
+    next(e)
+  }
 })
 
 export default router

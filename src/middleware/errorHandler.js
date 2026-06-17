@@ -5,10 +5,17 @@
  */
 import { KayakError } from '../kayak/client.js'
 
+/** 로그에 남길 본문에서 혹시 모를 apiKey 흔적을 가린다(PUBLIC 레포·키 보호). */
+export function scrubSecrets(body) {
+  if (body == null) return ''
+  const s = typeof body === 'string' ? body : JSON.stringify(body)
+  return s.replace(/(apiKey=)[^&\s"']*/gi, '$1***')
+}
+
 // eslint-disable-next-line no-unused-vars -- Express 에러 핸들러는 인자 4개여야 인식됨
 export function errorHandler(err, req, res, _next) {
   if (err instanceof KayakError) {
-    if (err.status >= 500) console.error(`[meta-api] KayakError ${err.code}:`, err.message, err.body ?? '')
+    if (err.status >= 500) console.error(`[meta-api] KayakError ${err.code}:`, err.message, scrubSecrets(err.body))
     return res.status(err.status).json({ error: err.code, message: err.message })
   }
   // CORS 거부 등 기타.

@@ -205,8 +205,43 @@ S1 고유 high 2건(#2 폴링·#3 페이지네이션) read-only 자문. 결론 +
 - **연결 실측**(개발실 IP 58.75.223.130·`npm run test:connect`): 자동완성 200·6건(`kplace:22028` 선택) / 검색 200·**폴링 후 isComplete=true(8.06s)**·totalResults 1234·25건·KRW·Novotel ★5 평점8.7·403,920원·bookUri `hapi-ko-kr…`(a=,p=) / 보조 정적피드 NDJSON 200 파싱. /health 200·/api 501스텁 미들웨어 통과·404 정상.
 - **키 누출 0**: 키는 `.env`·QA·샘플(전부 gitignore)에만. 커밋 대상 파일 grep 0건.
 
+## 실측 프로브 결과 — S2 착수 (2026-06-17 · 라이브 KAYAK·개발실 IP)
+어댑터/캐시 설계 전, 모호 지점을 라이브 호출로 확정(추측 제거):
+- **#4 features 수신**: responseOptions 에 `features` 포함 시 **per-hotel `features:[숫자ID]` 25/25 채워짐**(미포함 시 0/25). → #4 옵션 A(features+정규화) 채택 가능.
+- **facility 카탈로그**: `constants-mapping?types=facility` = NDJSON 1행 `{facility:{features:[{id,name,type}],tags:[]}}` ≈298종(매우 세분). `types=property` = `{property:[{id,name}]}` 0~51.
+- **propertyType**: 검색 응답 내 `propertyTypes` 패싯이 0~51 전체 + results 의 사용 id 전부 커버(폴백 불필요 수준). → 패싯 1차·constants 폴백.
+- **자동완성 필드**: `entityKey·primaryPlaceType·fullName(대문자)·hotelName·cityName`. KAYAK 는 hotel 을 앞에 줌 → 중계가 city→region→hotel 재정렬. ⚠ 앱 필드는 `fullname`(소문자).
+- **cashback**: providers[].cashback `{type:PERCENTAGE,value:5.5,cap:1200000,currency:KRW}`, isDirect 공급사는 cashback 없음.
+- **guestRating**: 0~10(7.7~9.4)·-1=평점없음. 앱 목/컴포넌트는 0~5(3.8~4.9·임계 4.5/4.0/3.5) → ÷2 확정.
+
+## codex 자문 결과 — S2 어댑터 (2026-06-17 · 실제 호출 성공)
+high #4·#5·#7 + #17·#18 read-only 자문. 4건 모두 내 결정에 **동의**, 2개 정교화 채택:
+1. **#4 amenities**: 정적 버킷 맵 채택(raw 라벨 dump 거부). ⚠정교화: **'무료 WiFi' 버킷은 명시적 유료(389 와이파이 유료·362 인터넷 추가요금) 제외**(유료를 무료로 표기하면 사용자 신뢰 훼손). '주차'는 유료 포함 OK, '반려동물'은 동반가능(394)만·불가(363) 제외. → `adapters/amenities.js` 반영.
+2. **#5 cashback**: 리스트는 `{type,value}` 충실 변환(isDirect→NONE). cap/currency 는 앱 타입 확장 없이 **진단/전방호환 추가필드로 보존**(리스트 카드는 율%만 쓰므로 과대표시 아님·금액·cap 정확도는 향후 아웃링크 트랙). → `transform.mapCashback`.
+3. **#7 guestRating**: ÷2·소수1자리·-1→0 동의. ⚠no-rating 구분 손실은 `numberOfReviews` 로 별도 판단 여지 남김. → `transform.normalizeGuestRating`.
+4. **#17/#18**: totalCount=반환건수 동의·KAYAK `totalResults` 는 **`serverTotalResults` 별도 진단필드**로 보존. constants 캐시 lazy+TTL(24h)+single-flight+cold-start 폴백 동의. → `adapters/hotels.js`·`kayak/constants.js`.
+
+## S2 어댑터 — 구현·검증 완료 (2026-06-17)
+- **신규 모듈**: `adapters/transform.js`(공통: guestRating·cashback·placeType·providerInitial·images·ratesCheapestFirst) / `adapters/amenities.js`(15버킷 정적맵·featuresToAmenities) / `adapters/autocomplete.js` / `adapters/hotels.js` / `kayak/constants.js`(lazy·TTL·single-flight 캐시) / `lib/dedupe.js`(in-flight 공유 + 45s 완료캐시·키에 clientIp market 포함·reject 미캐시). 라우트 `routes/autocomplete.js`·`routes/hotels.js` 실연결(스텁 제거).
+- **보안**: 어댑터가 KAYAK `destination.href`·`result.href`(apiKey 평문 포함)를 **읽지 않음**(앱 타입 안전필드만 선택) → 키 누출 차단. 응답 본문 grep apiKey 0.
+- **단위테스트** `npm test`: 34/34 pass(transform·amenities·autocomplete·hotels·dedupe). 합성 픽스처(비밀 없음)·hermetic(패싯 커버로 네트워크 미발생).
+- **라우트 실측** `npm run test:route`(개발실 IP): /health phase=S2-adapter / 자동완성 6건·앱 PlaceType·fullname·키누출0 / 검색 **250건·totalCount 250·serverTotalResults 1252**·첫 호텔 "노보텔 앰배서더 서울 동대문"★5 평점4.4/5 호텔·amenities13·**최저요금 403920(topRates[0]=최저가)**·cashback 앱타입·bookUri p= 보존·키누출0 / 파라미터누락 400 / 동시 de-dupe 200·200.
+- **라이브가 잡은 버그**: 검색 API `userTrackId` **필수**(없으면 400 MISSING_USER_TRACK_ID) → 라우트가 앱 미전달 시 `relay-{uuid}` 폴백 생성.
+- **이관/잔여**: 앱 측 연결(searchStore→쿼리 전달·MSW 제거·TopRate.bookUri/cap 타입 확장·RatingBadge 0~5 확인)은 **Meta-Re 실 API 연동 트랙**. S3 상세는 `kayak/constants.js getFacilityMap`(시설 라벨)·#19/#20 재사용.
+
+### S2 적대 리뷰(다차원 워크플로 `wf_d49848e7`·20 에이전트) — 발견 7건(원시15→검증7)
+5차원(계약·보안·견고성·결정준수·버킷맵) 병렬 검토 + 각 발견 적대 검증. 결과: **6건 수정·1건 S6 이관**.
+- **major** `availableRooms` 누락 0 폴백 → 앱이 '잔여 0개'(거짓 매진) 표시 → **수정**: ROOMS_UNKNOWN(99·임계 3 초과→배지 미노출).
+- **major** `numberOfProviders` 폴백이 4로 잘린 topRates.length 사용 → '가격비교 더보기' 과소표시 → **수정**: 폴백을 원본 rates 의 distinct providerIndex 수로.
+- **minor** 재정렬 후 `isCheapestRate` 플래그가 최저가와 어긋남(S02 가격비교 테두리 오표시 리스크) → **수정**: 정렬 후 최저가만 true 재계산.
+- **minor** `numberOfProviders`(contract 차원·위 major 중복) → 동일 수정으로 해소.
+- **minor** errorHandler 가 err.body 를 raw 로그 → apiKey 잔존 가능(앱 비노출·로그 한정) → **수정**: `scrubSecrets` 로 apiKey= 패턴 가림.
+- **minor** dedupe done 캐시 GC 가 호출 시에만 동작 → 트래픽 정지 시 메모리 잔류 → **수정**: 크기 상한(MAX_DONE 200·오래된 것부터 제거).
+- **minor** 폴링 중 일시 오류 1회로 검색 즉시 실패(재시도 없음) → **S6 #22(쿼터·백오프)로 이관**(검증된 S1 폴링 동작 변경 회피·코드별 분기 필요). 단위테스트 40/40·라우트 실측 재통과.
+
 ## 갱신 이력
 - **2026-06-17 v1**: 워크플로(33 에이전트·`wf_10ee2a1b`) 22 keep + 직접분석 + 검사관 교차검증(코드근거 5/6 일치·S0 CORS 표현 1건 정정).
 - **2026-06-17 v1.1**: codex S0 골격 자문 1회 성공(위 4건). high 14건은 각 세션 착수 직전 codex 호출 예정.
 - **2026-06-17 사용자 결정**: S0 보안·구조 보강(앱↔중계 인증·rate-limit / client IP 서버 계산 신뢰경계 / `app`·`listen` 분리 / KAYAK 헬퍼 host·auth 분리 / `/api` 공통 미들웨어)을 **S1 착수 시 함께 선반영**으로 확정. → S1 시작 시 먼저 codex로 #1·#16·구조 권고를 확정한 뒤 자동완성·검색 실호출 구현.
 - **2026-06-17 v1.2 (S1 완료)**: 위 구조·보안 선반영 + #2/#3 codex 자문(성공) 반영 + 자동완성·검색 실호출 200 검증. 상세는 위 "codex 자문 결과 — S1 연결" / "S1 연결 — 구현·검증 완료". 잔여 high(#4·#5·#7 등)는 S2 착수 직전 codex 호출.
+- **2026-06-17 v1.3 (S2 완료)**: #4·#5·#7·#17·#18 실측 프로브 + codex 자문(성공·4건 동의·2건 정교화) 반영. 어댑터 6모듈 + 라우트 실연결. 단위 34/34 + 라우트 실측(250건 실데이터·키누출0) 통과. userTrackId 필수 버그 라이브로 적발·수정. 상세는 위 3개 S2 섹션. 잔여 high(#6·#8~#14 등)는 S3~S6 착수 직전 codex 호출.
