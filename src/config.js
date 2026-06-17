@@ -38,6 +38,34 @@ export const config = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+
+  // ── 검색 비동기 폴링 예산(S1·codex 권고: A=서버 블로킹 폴링) ──
+  // 첫 응답 isComplete=false → 같은 요청 재호출. 간격·최대횟수·전체 타임아웃.
+  poll: {
+    intervalMs: Number(process.env.KAYAK_POLL_INTERVAL_MS ?? 1000),
+    maxAttempts: Number(process.env.KAYAK_POLL_MAX_ATTEMPTS ?? 10),
+    timeoutMs: Number(process.env.KAYAK_POLL_TIMEOUT_MS ?? 12000),
+  },
+  // 단일 KAYAK 호출(폴링 1회분) 네트워크 타임아웃.
+  requestTimeoutMs: Number(process.env.KAYAK_REQUEST_TIMEOUT_MS ?? 8000),
+
+  // ── 보안 hook (S1 골격·기본 비활성=로컬 개발 허용 / 운영 S6에서 강제) ──
+  security: {
+    // 앱↔중계 공유 시크릿. 설정 시 /api 요청에 x-relay-secret 헤더 강제.
+    // 공개 SPA에선 완전 비밀 불가(임시 남용 억제용). 미설정 시 통과(개발).
+    relaySharedSecret: process.env.RELAY_SHARED_SECRET ?? '',
+    // IP당 분당 최대 요청. 0=비활성(개발). 운영 데모 전 양수로.
+    rateLimitPerMin: Number(process.env.RATE_LIMIT_PER_MIN ?? 0),
+    // origin 없는 요청(curl·서버간) 허용 여부. 개발=true, 운영 데모=false 권장.
+    allowNoOrigin: (process.env.ALLOW_NO_ORIGIN ?? 'true') !== 'false',
+  },
+
+  // ── 클라이언트 IP 신뢰경계(codex #2/#13) ──
+  // 들어온 x-original-client-ip 는 신뢰하지 않고 서버가 계산한다.
+  // 신뢰 프록시 hop 수(0=직결, CF/LB 뒤면 그 hop 수). XFF 위조 방지.
+  trustProxyHops: Number(process.env.TRUST_PROXY_HOPS ?? 0),
+  // 개발 폴백 client IP(localhost 등 공인 IP 산출 불가 시). 임의 IP 금지 → 우리 개발실 egress.
+  devClientIp: process.env.DEV_CLIENT_IP ?? '58.75.223.130',
 }
 
 /** 누락된 비밀 키 '이름'만 반환(값은 절대 노출 안 함). 서버 기동은 하되 경고용. */
