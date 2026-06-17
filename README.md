@@ -27,7 +27,7 @@ npm start              # → http://localhost:8787
 헬스체크:
 ```bash
 curl http://localhost:8787/health
-# { "ok": true, "phase": "S0-skeleton", "secretsLoaded": true, ... }
+# { "ok": true, "phase": "S5-cashback", "secretsLoaded": true, ... }
 ```
 
 ## 환경변수
@@ -41,10 +41,14 @@ curl http://localhost:8787/health
 | `GET /api/autocomplete?q=` | `AutocompleteItem[]` | Autocomplete | ✅ S2 |
 | `GET /api/hotels?destination=&checkin=&checkout=&rooms=` | `{ results, totalCount }` | Hotel Search(다중) `/api/3.0/hotels` 🔴헤더2 | ✅ S2 |
 | `GET /api/hotel/:id` | `HotelDetail` | Hotel Search(단일) `/api/3.0/hotel` 🔴헤더2 | ✅ S3 |
-| `GET /api/cashback` | `CashbackTxn[]` | Reporting `/transactions/hotels` | S5 |
+| `GET /api/cashback?labels=` | `CashbackTxn[]` | Reporting `/transactions/hotels` | ✅ S5 |
 
 > ⚠ `/api/hotels` 는 검색 파라미터(`destination`·`checkin`·`checkout` 필수, `rooms` 기본 2)를 쿼리로 받는다.
 > 앱이 searchStore 조건을 쿼리로 실어 보내도록 연결한다(Meta-Re 연동 트랙). `userTrackId` 누락 시 중계가 폴백 생성.
+
+> 🔒 `/api/cashback` 의 `labels`(회원 라벨)는 **단일·필수**다. 누락/빈 값이면 `400 MISSING_LABELS` 로 차단하고
+> KAYAK 을 호출하지 않는다 — labels 를 생략하면 KAYAK 이 **전 회원** 거래를 반환(대량 유출)하기 때문(결정 [11]).
+> 잔여 IDOR(앱이 보낸 라벨 신뢰)은 운영(S6)에서 인증 백엔드의 서명 토큰으로 라벨을 도출해 막는다.
 
 > `/api/member`, `/api/deals` 는 KAYAK 무관(올마이투어 자체 데이터) — 필요 시 별도 추가.
 
@@ -53,8 +57,8 @@ curl http://localhost:8787/health
 - **S1** ✅: 자동완성·검색 실호출(개발실 IP에서 200 + 실데이터). 검색 헤더 2개 검증.
 - **S2** ✅: 자동완성·검색결과 어댑터(KAYAK→앱 타입) + constants-mapping 캐시 + 검색 de-dupe. 단위테스트 `npm test`, 라우트 실측 `npm run test:route`.
 - **S3** ✅: 상세 어댑터(KAYAK 단일 호텔→`HotelDetail`) + isComplete 폴링 재사용 + propertyType 검색캐시 보강. 단위테스트 `npm test`, 라우트 실측 `npm run test:route`(상세 포함).
-- **S4**: 딥링크 `p=` 회원 라벨 주입(앱 측 `Meta-Re/lib/outlink.ts`).
-- **S5**: 캐시백 리포팅(테스트 예약 → 익일 조회).
-- **S6**: 운영 전환(운영 HOST·고정 IP 화이트리스트·통화/번역·CSP).
+- **S4** ✅: 딥링크 `p=` 회원 라벨 주입(앱 측 `Meta-Re/lib/outlink.ts`).
+- **S5** ✅: 캐시백 리포팅(`/transactions/hotels`→`CashbackTxn[]`). 라벨 게이팅(누락→400)·상태판정(Active+정산경과→Approved·그외 Waiting·Cancelled)·Booking 필터·KRW 반올림. 단위테스트 `npm test`, 라우트 실측 `npm run test:route`(캐시백 포함).
+- **S6**: 운영 전환(운영 HOST·고정 IP 화이트리스트·통화/번역·CSP·캐시백 라벨 서명 토큰).
 
 상세 명세: `docs/개발요청서_KAYAK연동_v1.md`, `docs/개발가이드_KAYAK연동_v1.md`.

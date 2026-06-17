@@ -263,6 +263,31 @@ S3 5건(#6 폴링·#11 평점·#19 리뷰·#20 propertyType·facility + policies
 - **이관(Meta-Re 연동 트랙)** [사진탭 tag] 단일응답 images 에 tag 없음 → 어댑터 tag='' → 앱 `Detail.tsx` photoCats 가 빈 tag 칩을 거르지 않아 빈 라벨 칩 1개 생성. **중계 어댑터는 정확(KAYAK tag 미제공)**·근본은 앱 렌더 → `Detail.tsx` photoCats 에 `filter((t)=>t.trim())` 추가 필요(앱 트랙·중계 코드로 수정 불가).
 - refuted 13건(URLSearchParams 자동 인코딩·React 텍스트 이스케이프·KAYAK cancel 미제공·BUCKET_TAG 사우나 L70 존재·providerIndex 조인 자동필터 등) 자체 재검토 기각 타당. 수정 후 회귀 테스트 추가(무효요금 드롭·손상평점 제외)·66/66 + 라우트 재실측 통과.
 
+## codex 자문 결과 — S5 캐시백 (2026-06-17 · 실제 호출 성공)
+S5 고유 결정 5건(D1~D5: #10 상태판정·#11 라벨 IDOR/유출 포함) read-only 자문. 결론 + 내 판단:
+1. **[D1·#11] labels 누락 처리**: codex **A(400 MISSING_LABELS)** 권고 — `200 []` 는 "앱이 라벨 안 보낸 버그"를 "캐시백 없음"으로 위장. 둘 다 전체유출은 막지만 계약 위반은 빨리 드러나야 함. **채택**.
+2. **[D2·#11] 잔여 IDOR**: stateless relay 는 임의 labels 의 IDOR 를 완전 차단 불가. S5 범위(라벨 필수·단일·문자셋/길이 제한·omit-all 차단·rate-limit·문서화) 적절. 더 나은 운영 해법 = 서버 세션이 아니어도 **인증 백엔드가 발급한 서명 토큰(JWT/HMAC)에서 라벨 도출**, 쿼리의 임의 라벨은 운영서 비수용. → S6 문서화. **채택**.
+3. **[D3·#10] 상태판정**: `11→Cancelled`·`0/누락→Waiting` 정확. `Active+paymentMonth+ET 정산경과→Approved` 는 API 한계 내 보수적 추론(함수명 `isSettlementPassed`·'inferred' 주석). ⚠ 더 보수적으로 **ET 다음 달 26일 00:00 이후**부터 Approved(25일 시작 아님)로 과대표시 위험 축소. **채택(26일)**.
+4. **[D4] Booking 필터**: `typeCode===10` 만 포함·Lead 제외·Cancelled booking 표시 정확. `typeCode 누락+bookingDate 만 있는 건 제외`(명시 booking type 만 신뢰). **채택**.
+5. **[D5] 금액**: `Math.round` 타당. `siteBrandCode`=meta site brand(OTA 아님) 주석 후 직매핑. USD×환율 폴백은 `localisedCurrencyCode==='KRW'`+유한수+환율>0 일 때만(아니면 0). **채택**.
+
+> codex 결론: 설계 방향 타당. 'Approved' 단어는 추론임을 코드/주석에 명시, 정산 임계는 26일로 보수화, 통화 폴백은 KRW 확인 시에만.
+
+## S5 캐시백 — 구현·검증 완료 (2026-06-17)
+- **신규 모듈**: `adapters/cashback.js`(순수 어댑터·`now` 주입: resolveStatus·isSettlementPassed[ET 다음 달 26일]·isBooking[typeCode 10]·pickCashbackAmount[KRW 게이트·음수 클램프]·toYmd/toYearMonth·roundKrw·bookingDate desc+호텔명/금액 tie-break 정렬). `routes/cashback.js` 실연결(501 스텁 제거). `config.cashback`(lookbackDays 400·pageSize 1000·settleDay 26). health phase `S5-cashback`.
+- **보안 [11]**: `labels` **단일·필수**. 누락/빈→`400 MISSING_LABELS`(KAYAK 미호출=전 회원 유출 불가). 배열 쿼리(`?labels=a&labels=b`)·콤마·문자셋 위반→`400 INVALID_LABEL`. 날짜 형식→`400 INVALID_DATE`, 역전→`400 INVALID_DATE_RANGE`. 어댑터가 KAYAK 안전필드만 선택(키 누출 0). 잔여 IDOR·서명토큰은 S6.
+- **상태 [10]**: `statusCode 11→Cancelled` / `Active(1)+paymentMonth+ET 정산경과(다음 달 26일)→Approved` / 그 외(Active 정산전·Unknown 0·누락)→`Waiting`. 가이드 §8 'paymentMonth 존재만으로 Approved 금지' 준수.
+- **단위테스트 `npm test` 89/89**(기존 66 + 캐시백 23). 합성 픽스처(비밀 없음)·hermetic·ET 경계 `now` 주입.
+- **라이브 실측 `npm run test:route`**(개발실 IP·실 KAYAK Reporting): 라벨 누락 400·콤마 400·배열쿼리 400·날짜역전 400·잘못된날짜 400 / 유효 라벨 **200 + CashbackTxn[]**(테스트 예약 없어 0건·정상) / 🔒 apiKey 누출 0. 별도 프로브(`scripts/probe-cashback.mjs`)로 리포팅 응답이 **바 배열**임을 확인(어댑터 정규화 검증).
+- **이관(Meta-Re 연동 트랙)**: 앱 `Cashback.tsx` 가 `/api/cashback?labels={memberId||userTrackId}`(S4 p= SSOT 동일)로 라벨 전달 + `formatShortKo('')` 빈 날짜 가드(S3 사진탭 tag 와 동일 앱-렌더 트랙). 중계 계약은 정확(라벨 필수).
+
+### S5 적대 리뷰(다차원 워크플로 `wf_26974b3c`·22 에이전트) — confirmed 11(원시→검증 11·refuted 6)
+5차원(계약·보안·견고성·결정준수·엣지) 병렬 + 발견별 적대 검증. 결과: **6 수정·3 주석/테스트·2 Meta-Re 이관**.
+- **수정(중계 코드)**: ① 배열 쿼리 `?labels=a&labels=b` 명시적 거부(우연 차단→의도적·INVALID_LABEL) ② 캐시백 dedupe TTL 45s→10s(Waiting→Approved 전이 stale 고착 최소화) ③ 동일 bookingDate 정렬 결정성(호텔명 asc→금액 desc tie-break) ④ 음수 금액 0 클램프(roundKrw·음수 캐시백 표시 방지) ⑤ `startDate>endDate`→400 INVALID_DATE_RANGE(RAML invalid·GIGO 방지) ⑥ **통화 게이트**: `localisedBookingValue`·`cashbackAmountLocalised` 를 `localisedCurrencyCode==='KRW'` 일 때만 반영(비KRW 거래 KRW 오표기 방지·pickCashbackAmount 와 일관·critical 지적).
+- **주석/테스트만**: ⑦ 기본 조회창 UTC/ET 경계(창이 ~400일+1 이라 ET 오늘/어제 완전 포함·누락 불가 → 주석 명시·기능 변경 불요) ⑧ toYmd 가 `+09:00` 오프셋 안전(검증이 'toYmd 결함' 기각·테스트 추가) ⑨ truncation 은 비무음 경고 유지+다중페이지/구조화로깅은 S6 이관(회원 1인 거래 소량이라 발현 희박).
+- **이관(Meta-Re 연동 트랙)**: [critical] 앱이 `?labels=` 미전달(앱 측 배선·MSW 단계라 미발현·S2/S3 와 동일 트랙) / [major] `formatShortKo('')`→`NaN.NaN(undefined)`(중계 출력 `''` 는 정직·근본은 앱 렌더 가드·S3 사진탭 tag 선례).
+- refuted 6건(배열쿼리는 이미 안전·toYmd 오프셋 안전 등) 자체 재검토 타당. 수정 후 회귀 `npm test` 89/89 + 라우트 재실측(배열쿼리·날짜역전 추가) 통과.
+
 ## 갱신 이력
 - **2026-06-17 v1**: 워크플로(33 에이전트·`wf_10ee2a1b`) 22 keep + 직접분석 + 검사관 교차검증(코드근거 5/6 일치·S0 CORS 표현 1건 정정).
 - **2026-06-17 v1.1**: codex S0 골격 자문 1회 성공(위 4건). high 14건은 각 세션 착수 직전 codex 호출 예정.
@@ -270,3 +295,4 @@ S3 5건(#6 폴링·#11 평점·#19 리뷰·#20 propertyType·facility + policies
 - **2026-06-17 v1.2 (S1 완료)**: 위 구조·보안 선반영 + #2/#3 codex 자문(성공) 반영 + 자동완성·검색 실호출 200 검증. 상세는 위 "codex 자문 결과 — S1 연결" / "S1 연결 — 구현·검증 완료". 잔여 high(#4·#5·#7 등)는 S2 착수 직전 codex 호출.
 - **2026-06-17 v1.3 (S2 완료)**: #4·#5·#7·#17·#18 실측 프로브 + codex 자문(성공·4건 동의·2건 정교화) 반영. 어댑터 6모듈 + 라우트 실연결. 단위 34/34 + 라우트 실측(250건 실데이터·키누출0) 통과. userTrackId 필수 버그 라이브로 적발·수정. 상세는 위 3개 S2 섹션. 잔여 high(#6·#8~#14 등)는 S3~S6 착수 직전 codex 호출.
 - **2026-06-17 v1.4 (S3 완료)**: #6·#11·#19·#20 + policies·de-dupe codex 자문(성공·#19/#20facility 동의·#20propertyType/policies/dedupe 정교화) 반영. 상세 어댑터 + propertyType 캐시 + 라우트 실연결. 단위 66/66 + 라우트 실측(노보텔·이비스 실데이터·키누출0). 적대 리뷰(`wf_f77cab0e`·25 에이전트) confirmed 7=6수정(results정제 #2/#4/#5·평점방어 #3·캐시 #6/#7)+1 Meta-Re 이관(사진탭 tag). 상세는 위 3개 S3 섹션. 잔여 high(#8 p=라벨·#9 인코딩·#10 Approved·#11 IDOR·#12~#14 운영)는 S4~S6 착수 직전 codex 호출.
+- **2026-06-17 v1.5 (S5 완료)**: #10 상태판정·#11 라벨 IDOR/유출 codex 자문(성공·D1~D5 전부 동의·정산임계 26일+USD폴백 KRW조건 2건 보수화) 반영. 캐시백 어댑터 + 라우트 실연결(라벨 게이팅). 단위 89/89 + 라우트 실측(라벨 게이팅 5종·유효라벨 200·키누출0·리포팅 바배열 프로브). 적대 리뷰(`wf_26974b3c`·22 에이전트) confirmed 11=6수정(배열거부·dedupe TTL·정렬결정성·음수클램프·날짜역전·통화게이트)+3주석/테스트(UTC창·toYmd오프셋·truncation)+2 Meta-Re 이관(앱 labels 전달·formatShortKo 빈날짜). 상세는 위 3개 S5 섹션. S4(딥링크 p=)는 앱 레포에서 완료. 잔여 high(#12~#14 운영·#1/#13 client IP·#21 통화·#22 쿼터)는 S6 착수 직전 codex 호출.

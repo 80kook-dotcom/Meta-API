@@ -3,8 +3,9 @@
  * "중계 경유로 앱 타입 실데이터가 나온다 + 키 누출 0"을 증명한다(개발실 IP 58.75.223.130 망에서만 200).
  *
  * 실행: npm run test:route
- * 검증: ① /health phase=S2-adapter  ② /api/autocomplete 앱 AutocompleteItem[]  ③ /api/hotels 앱 {results,totalCount}
- *       ④ 🔒 응답 본문에 apiKey 흔적 0  ⑤ 필수 파라미터 누락 → 400
+ * 검증: ① /health phase=S5-cashback  ② /api/autocomplete 앱 AutocompleteItem[]  ③ /api/hotels 앱 {results,totalCount}
+ *       ④ 🔒 응답 본문에 apiKey 흔적 0  ⑤ 필수 파라미터 누락 → 400  ⑥ /api/hotel/:id 상세
+ *       ⑦ de-dupe  ⑧ /api/cashback 라벨 게이팅(누락 400·잘못된 라벨 400)+실데이터 CashbackTxn[]
  */
 import { createApp } from '../src/app.js'
 
@@ -29,14 +30,14 @@ async function main() {
     const s = app.listen(PORT, () => res(s))
   })
   L('═'.repeat(64))
-  L(`  S3 라우트 실측  ${BASE}`)
+  L(`  S5 라우트 실측  ${BASE}`)
   L('═'.repeat(64))
 
   try {
     // ① /health
     L('\n[1] GET /health')
     const health = await (await fetch(`${BASE}/health`)).json()
-    check(health.phase === 'S3-detail', 'phase=S3-detail', health.phase)
+    check(health.phase === 'S5-cashback', 'phase=S5-cashback', health.phase)
     check(health.secretsLoaded === true, 'secretsLoaded=true (키 로드)', JSON.stringify(health.missingSecrets))
 
     // ② /api/autocomplete
@@ -144,6 +145,49 @@ async function main() {
     } else {
       check(false, '[6] 상세: 검색 결과에서 hotelId 미확보')
     }
+
+    // ⑧ /api/cashback — 라벨 게이팅 + 실데이터(CashbackTxn[])
+    L('\n[8] GET /api/cashback (라벨 게이팅 + 실데이터)')
+    // 8-1 라벨 누락 → 400 MISSING_LABELS (KAYAK 호출 안 함 = 전 회원 유출 차단)
+    const cbMiss = await fetch(`${BASE}/api/cashback`)
+    const cbMissBody = await cbMiss.json().catch(() => ({}))
+    check(cbMiss.status === 400 && cbMissBody.error === 'MISSING_LABELS', '라벨 누락 → 400 MISSING_LABELS', `${cbMiss.status}/${cbMissBody.error}`)
+    // 8-2 잘못된 라벨(콤마=다회원 일괄) → 400 INVALID_LABEL
+    const cbBad = await fetch(`${BASE}/api/cashback?labels=${encodeURIComponent('a,b')}`)
+    const cbBadBody = await cbBad.json().catch(() => ({}))
+    check(cbBad.status === 400 && cbBadBody.error === 'INVALID_LABEL', '콤마 라벨 → 400 INVALID_LABEL', `${cbBad.status}/${cbBadBody.error}`)
+    // 8-2b 배열 쿼리(?labels=a&labels=b) → 400 INVALID_LABEL (명시적 거부·적대리뷰)
+    const cbArrQ = await fetch(`${BASE}/api/cashback?labels=a&labels=b`)
+    const cbArrQBody = await cbArrQ.json().catch(() => ({}))
+    check(cbArrQ.status === 400 && cbArrQBody.error === 'INVALID_LABEL', '배열 쿼리 라벨 → 400 INVALID_LABEL', `${cbArrQ.status}/${cbArrQBody.error}`)
+    // 8-2c startDate>endDate → 400 INVALID_DATE_RANGE
+    const cbRange = await fetch(`${BASE}/api/cashback?labels=route-test&startDate=2026-06-20&endDate=2026-06-10`)
+    const cbRangeBody = await cbRange.json().catch(() => ({}))
+    check(cbRange.status === 400 && cbRangeBody.error === 'INVALID_DATE_RANGE', '날짜 역전 → 400 INVALID_DATE_RANGE', `${cbRange.status}/${cbRangeBody.error}`)
+    // 8-3 잘못된 날짜 → 400 INVALID_DATE
+    const cbDate = await fetch(`${BASE}/api/cashback?labels=route-test&startDate=2026/01/01`)
+    const cbDateBody = await cbDate.json().catch(() => ({}))
+    check(cbDate.status === 400 && cbDateBody.error === 'INVALID_DATE', '잘못된 날짜 → 400 INVALID_DATE', `${cbDate.status}/${cbDateBody.error}`)
+    // 8-4 유효 라벨 → 200 + CashbackTxn[](테스트 예약 없으면 빈 배열·정상) + 키누출 0
+    const cbLabel = 'route-test-label'
+    const cbRes = await fetch(`${BASE}/api/cashback?labels=${encodeURIComponent(cbLabel)}`)
+    const cbText = await cbRes.text()
+    check(cbRes.status === 200, '유효 라벨 → 200', String(cbRes.status))
+    check(!/apiKey/i.test(cbText), '🔒 응답에 apiKey 없음')
+    let cbArr = null
+    try { cbArr = JSON.parse(cbText) } catch {}
+    check(Array.isArray(cbArr), 'CashbackTxn[] 배열', `${Array.isArray(cbArr) ? cbArr.length + '건' : typeof cbArr}`)
+    L(`     라벨 "${cbLabel}" 거래 ${Array.isArray(cbArr) ? cbArr.length : '?'}건 (테스트 예약 없으면 0건 정상)`)
+    if (Array.isArray(cbArr) && cbArr.length > 0) {
+      const c = cbArr[0]
+      const STATUS = new Set(['Waiting', 'Approved', 'Cancelled'])
+      check(STATUS.has(c.status), 'status enum(Waiting/Approved/Cancelled)', c.status)
+      check(typeof c.localisedBookingValue === 'number' && Number.isInteger(c.localisedBookingValue), 'localisedBookingValue 정수(KRW)', String(c.localisedBookingValue))
+      check(typeof c.cashbackAmountLocalised === 'number' && Number.isInteger(c.cashbackAmountLocalised), 'cashbackAmountLocalised 정수(KRW)', String(c.cashbackAmountLocalised))
+      check(/^\d{4}-\d{2}-\d{2}$/.test(c.bookingDate) || c.bookingDate === '', 'bookingDate YYYY-MM-DD')
+      check(/^\d{4}-\d{2}$/.test(c.paymentMonth) || c.paymentMonth === '', 'paymentMonth YYYY-MM')
+      L(`     첫 거래: ${c.bookingDate} · ${c.hotelName}(${c.hotelCity}) · ${c.siteBrandCode} · 예약 ₩${c.localisedBookingValue?.toLocaleString?.()} · 캐시백 ₩${c.cashbackAmountLocalised?.toLocaleString?.()} · ${c.status} · 정산 ${c.paymentMonth}`)
+    }
   } catch (e) {
     pass = false
     L(`\n❌ 예외: ${e?.code ?? ''} ${e?.message ?? e}`)
@@ -152,7 +196,7 @@ async function main() {
   }
 
   L('\n' + '═'.repeat(64))
-  L(pass ? '  ✅ S3 라우트 실측 통과' : '  ❌ S3 라우트 실측 실패 — 위 ✗ 확인')
+  L(pass ? '  ✅ S5 라우트 실측 통과' : '  ❌ S5 라우트 실측 실패 — 위 ✗ 확인')
   L('═'.repeat(64))
   process.exitCode = pass ? 0 : 1
 }

@@ -49,6 +49,16 @@ export const config = {
   // 단일 KAYAK 호출(폴링 1회분) 네트워크 타임아웃.
   requestTimeoutMs: Number(process.env.KAYAK_REQUEST_TIMEOUT_MS ?? 8000),
 
+  // ── 캐시백 리포팅(S5) ──
+  // Reporting 은 startDate~endDate 필수. 미지정 시 기본 조회 창(일). 최근 N일치 거래.
+  cashback: {
+    lookbackDays: Number(process.env.CASHBACK_LOOKBACK_DAYS ?? 400),
+    // 단일 페이지 조회 건수(회원 1인의 거래는 보통 소량). 초과분은 truncation 로그로 경고.
+    pageSize: Number(process.env.CASHBACK_PAGE_SIZE ?? 1000),
+    // 정산 경과 추론 임계 '일'(ET 기준 paymentMonth 다음 달 N일 이후 → Approved). adapters/cashback.js 참조.
+    settleDay: Number(process.env.CASHBACK_SETTLE_DAY ?? 26),
+  },
+
   // ── 보안 hook (S1 골격·기본 비활성=로컬 개발 허용 / 운영 S6에서 강제) ──
   security: {
     // 앱↔중계 공유 시크릿. 설정 시 /api 요청에 x-relay-secret 헤더 강제.
