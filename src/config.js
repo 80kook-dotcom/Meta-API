@@ -14,8 +14,8 @@ try {
 export const config = {
   port: Number(process.env.PORT ?? 8787),
 
-  // KAYAK affiliate 호스트. 개발=샌드박스, 운영=Getting Started 에서 확정([운영 HOST]).
-  kayakHost: process.env.KAYAK_HOST ?? 'https://sandbox-en-us.kayakaffiliates.com',
+  // KAYAK affiliate 호스트. 운영 확정 = ko-kr (실측). 샌드박스 sandbox-en-us 는 403. S1 에서 재확인.
+  kayakHost: process.env.KAYAK_HOST ?? 'https://ko-kr.kayakaffiliates.com',
   reportingHost: process.env.KAYAK_REPORTING_HOST ?? 'https://api.affiliates.hotelscombined.com',
 
   // 비밀 키 (검색·정적·자동완성 공용 / 리포팅 전용)

@@ -31,7 +31,7 @@ curl http://localhost:8787/health
 ```
 
 ## 환경변수
-`.env.example` 참고. 핵심: `PORT`, `KAYAK_HOST`(개발=샌드박스), `KAYAK_API_KEY`, `KAYAK_REPORTING_KEY`, `KAYAK_AFFILIATE_ID`, `KAYAK_SEARCH_UA`(검색 API 필수 User-Agent), `ALLOWED_ORIGINS`.
+`.env.example` 참고. 핵심: `PORT`, `KAYAK_HOST`(운영 확정 `ko-kr`·샌드박스 `sandbox-en-us`는 403), `KAYAK_API_KEY`, `KAYAK_REPORTING_KEY`, `KAYAK_AFFILIATE_ID`, `KAYAK_SEARCH_UA`(검색 API 필수 User-Agent), `ALLOWED_ORIGINS`.
 
 ## 앱 측 계약 (`/api/*`)
 중계 서버는 Meta-Re 앱이 기대하는 경로·응답 형태를 그대로 제공합니다(앱 코드 변경 최소화).
