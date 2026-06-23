@@ -21,6 +21,7 @@ import {
   providerInitial,
   pickImages,
   ratesCheapestFirst,
+  directProviderIndexes,
 } from './transform.js'
 
 // 잔여객실 수 불명 시 폴백. 앱은 availableRooms<=3 일 때만 '잔여 N개' 배지를 띄우므로,
@@ -47,9 +48,20 @@ function adaptRate(rate, providers) {
   return out
 }
 
-/** 호텔 1건 → 앱 Hotel. */
-function adaptOneHotel(r, providers, propertyType) {
-  const rawRates = Array.isArray(r?.rates) ? r.rates : []
+/** 호텔 1건 → 앱 Hotel. (directIdx = 「사이트 직접 예약」 공급사 인덱스 집합·노출 제외) */
+function adaptOneHotel(r, providers, propertyType, directIdx) {
+  const allRates = Array.isArray(r?.rates) ? r.rates : []
+  // 「사이트 직접 예약」(isDirect) 요금 제외 + 무효 요금 방어(상세 어댑터와 동일 기준·codex #4):
+  //   양수 가격·정수/범위내 providerIndex 만 통과 → direct 제거 후 빈 공급사명·₩0 노출 차단.
+  const rawRates = allRates.filter(
+    (rate) =>
+      typeof rate?.totalRate === 'number' &&
+      rate.totalRate > 0 &&
+      Number.isInteger(rate?.providerIndex) &&
+      rate.providerIndex >= 0 &&
+      rate.providerIndex < providers.length &&
+      !directIdx.has(rate.providerIndex),
+  )
   // 최저가 우선 정렬 후 상위 4건(앱 카드 표시·rateOf 대표요금).
   const topRates = ratesCheapestFirst(rawRates).slice(0, 4).map((rate) => adaptRate(rate, providers))
   // 정렬로 topRates[0]=최저가가 되므로 KAYAK 원본 isCheapestRate 플래그를 정렬과 정합하게 재계산
@@ -58,6 +70,10 @@ function adaptOneHotel(r, providers, propertyType) {
     const minRate = Math.min(...topRates.map((t) => t.totalRate))
     for (const t of topRates) t.isCheapestRate = t.totalRate === minRate
   }
+  // direct 제외 정책 반영용: 이 호텔 요금에 실제 끼어 있던 direct 공급사 '종' 수(보통 「사이트 직접 예약」 1종).
+  const directProvCount = new Set(
+    allRates.filter((x) => directIdx.has(x?.providerIndex)).map((x) => x?.providerIndex),
+  ).size
   return {
     hotelId: String(r?.id ?? r?.key ?? ''),
     name: r?.translatedName || r?.name || '', // 한글 표시 우선(translatedName)
@@ -66,9 +82,10 @@ function adaptOneHotel(r, providers, propertyType) {
     numberOfReviews: typeof r?.numberOfReviews === 'number' && r.numberOfReviews > 0 ? r.numberOfReviews : 0,
     images: pickImages(r?.images),
     // 폴백은 표시용 topRates(최대4)가 아니라 원본 rates 의 distinct 공급사 수(과소표시 방지).
+    // direct 제외 반영: KAYAK 전체 공급사 수(direct 포함)에서 이 호텔에 끼어 있던 direct 종 수를 차감.
     numberOfProviders:
       typeof r?.numberOfProviders === 'number'
-        ? r.numberOfProviders
+        ? Math.max(0, r.numberOfProviders - directProvCount)
         : new Set(rawRates.map((x) => x?.providerIndex)).size,
     location: r?.address || '',
     propertyType: propertyType || '',
@@ -85,6 +102,8 @@ function adaptOneHotel(r, providers, propertyType) {
 export async function adaptHotels(resp, { languageCode = 'ko_KR' } = {}) {
   const results = Array.isArray(resp?.results) ? resp.results : []
   const providers = Array.isArray(resp?.providers) ? resp.providers : []
+  // 「사이트 직접 예약」(isDirect) 공급사 인덱스 — 요금 제외 + direct-only 호텔 제외에 사용(노출 정책 2026-06-23).
+  const directIdx = directProviderIndexes(providers)
 
   // propertyType 라벨: 응답 패싯 1차(항상 최신·추가 호출 불필요).
   const facet = new Map(
@@ -100,7 +119,10 @@ export async function adaptHotels(resp, { languageCode = 'ko_KR' } = {}) {
     if (label == null && typeof r?.propertyType === 'number') {
       label = await getPropertyLabel(r.propertyType, languageCode)
     }
-    const hotel = adaptOneHotel(r, providers, label)
+    const hotel = adaptOneHotel(r, providers, label, directIdx)
+    // direct-only 호텔(표시 가능한 요금이 전부 「사이트 직접 예약」이라 0건)은 목록에서 제외
+    // (사용자 결정 2026-06-23: 보여줄 가격이 없는 호텔은 검색 결과에서 뺀다 → 빈 가격칸/₩0 방지).
+    if (!hotel.topRates.length) continue
     // 상세(S3)는 단일응답에 propertyType 이 없어 보강이 필요하다 → 라벨이 있으면 적재(#20).
     if (label) rememberPropertyType(hotel.hotelId, label, languageCode)
     hotels.push(hotel)

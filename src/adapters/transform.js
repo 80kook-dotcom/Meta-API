@@ -79,3 +79,18 @@ export function ratesCheapestFirst(rates) {
   if (!Array.isArray(rates)) return []
   return rates.slice().sort((a, b) => (a?.totalRate ?? Infinity) - (b?.totalRate ?? Infinity))
 }
+
+/**
+ * 「사이트 직접 예약」(isDirect=true) 공급사의 **원본 KAYAK providers 배열 인덱스** 집합.
+ *
+ * 노출 정책상 제외 대상(사용자 결정 2026-06-23: '사이트 직접 예약'을 프론트에 노출 금지).
+ * 검색(hotels)·상세(hotel) 어댑터가 공유한다. 반환값의 인덱스는 원본 배열 위치이므로
+ * results[].providerIndex(원본 위치를 가리킴)와 직접 대조해 그 공급사의 요금을 골라낼 수 있다.
+ * @param {Array<{isDirect?:boolean}>|undefined} providers
+ * @returns {Set<number>}
+ */
+export function directProviderIndexes(providers) {
+  const set = new Set()
+  if (Array.isArray(providers)) providers.forEach((p, i) => { if (p?.isDirect) set.add(i) })
+  return set
+}

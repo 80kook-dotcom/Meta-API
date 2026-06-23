@@ -16,7 +16,7 @@
  */
 import { recallPropertyType } from '../lib/propertyTypeCache.js'
 import { featuresToFacilities } from './amenities.js'
-import { normalizeGuestRating, mapCashback, providerInitial } from './transform.js'
+import { normalizeGuestRating, mapCashback, providerInitial, directProviderIndexes } from './transform.js'
 
 // 잔여객실 불명 폴백 — hotels.js 와 동일 정책(누락을 0 으로 두면 '잔여 0개' 거짓 매진. 임계 3 초과로 미노출).
 const ROOMS_UNKNOWN = 99
@@ -129,12 +129,21 @@ export function adaptHotelDetail(resp, { languageCode = 'ko_KR' } = {}) {
   const reviews = resp?.reviews ?? {}
   const guestRatings = reviews?.guestRatings ?? {}
 
-  const providers = (Array.isArray(resp?.providers) ? resp.providers : []).map(adaptProvider)
+  // 「사이트 직접 예약」(isDirect) 공급사는 노출 정책상 제외(사용자 결정 2026-06-23).
+  // 🔑 providerIndex 조인 보존: adaptProvider(p, i) 는 원본 배열 위치를 provider.index 에 박는다.
+  //   따라서 map(원본 index 고정) → filter(direct 제거) 순서면 남은 provider 의 index 가 원본 위치를
+  //   그대로 유지한다. results[].providerIndex 도 원본 위치를 가리키므로 인덱스 재매핑 없이
+  //   priceCompare.buildProviderGroups(provider.index === r.providerIndex)의 조인이 깨지지 않는다.
+  const rawProviders = Array.isArray(resp?.providers) ? resp.providers : []
+  const directIdx = directProviderIndexes(rawProviders)
+  const providers = rawProviders.map(adaptProvider).filter((p) => !directIdx.has(p.index))
   // 무효 요금 제외: totalRate<=0(거짓 '₩0')·providerIndex<0(공급사 조인 불가)은 가격비교에 부적합 → 드롭.
   // KAYAK 정상 응답엔 없음(실측 163건 전부 유효)·손상/부분응답 방어 + 앱 가격비교 정합(적대리뷰 #2·#4·#5).
+  // + direct 공급사 요금도 함께 제외(위 노출 정책).
   const results = (Array.isArray(resp?.results) ? resp.results : [])
     .map(adaptRoomRate)
-    .filter((r) => r.totalRate > 0 && r.providerIndex >= 0)
+    // providerIndex 범위 가드(codex #1): rawProviders 범위를 벗어난 요금은 조인 불가 고아 → 드롭.
+    .filter((r) => r.totalRate > 0 && r.providerIndex >= 0 && r.providerIndex < rawProviders.length && !directIdx.has(r.providerIndex))
   // isCheapestRate 정합: 남은 요금 중 최저가만 true(앱 '최저가' 뱃지=rep.isCheapestRate·목록 어댑터와 동일 보정).
   if (results.length) {
     const min = Math.min(...results.map((r) => r.totalRate))
